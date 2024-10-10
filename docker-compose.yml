@@ -74,6 +74,18 @@ services:
       links:
         - pretalx
 
+  zrok_media:
+      image: openziti/zrok
+      restart: unless-stopped
+      user: "1002"
+      volumes:
+        - ${HOME}/.zrok:/.zrok
+        - pretalx-data:/data:ro
+      environment:
+          PFXLOG_NO_JSON: "true"
+      command: share reserved "ref11media" --headless
+
+
 
 volumes:
   pretalx-db:
