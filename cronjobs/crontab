@@ -1,0 +1,7 @@
+
+SHELL=/bin/bash
+
+# crontab every 1 minute
+*/1 * * * *   /cronjobs/pretalx-periodic.sh
+
+

@@ -1,18 +1,22 @@
 version: '3'
 services:
   pretalx:
-    image: pretalx/standalone:latest
-    container_name: pretalx
+    image: lcas.lincoln.ac.uk/lcas/pretalx:latest
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: pretalx_ref11
     restart: unless-stopped
     depends_on: 
       - redis
       - db
+      - mail
     environment:
       # Hint: Make sure you serve all requests for the `/static/` and `/media/` paths when debug is False. See [installation](https://docs.pretalx.org/administrator/installation/#step-7-ssl) for more information
-      PRETALX_FILESYSTEM_MEDIA: /public/media
+      PRETALX_FILESYSTEM_MEDIA: /data/media
       PRETALX_FILESYSTEM_STATIC: /public/static
     ports:
-      - "80:80"
+      - "8188:80"
     volumes: 
       - ./conf/pretalx.cfg:/etc/pretalx/pretalx.cfg:ro
       - pretalx-data:/data
@@ -23,7 +27,7 @@ services:
 
   db:
     image: mysql:latest
-    container_name: pretalx-db
+    #container_name: pretalx-db
     restart: unless-stopped
     volumes:
       - pretalx-db:/var/lib/mysql
@@ -36,10 +40,41 @@ services:
 
   redis:
     image: redis:latest
-    container_name: pretalx-redis
+    #container_name: pretalx-redis
     restart: unless-stopped
     volumes: 
       - pretalx-redis:/data
+
+  mail:
+    image: bytemark/smtp
+    restart: unless-stopped
+    environment:
+      MAILNAME: "coltrane.network.uni"
+      RELAY_HOST: mailslot.lincoln.ac.uk
+      RELAY_PORT: 25
+
+  cron:
+    image: lcas.lincoln.ac.uk/lcas/aptly-cron:master
+    build:
+      context: ./cronjobs
+      dockerfile: ./Dockerfile.cron
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+
+  zrok:
+      image: openziti/zrok
+      restart: unless-stopped
+      user: "1002"
+      volumes:
+        - ${HOME}/.zrok:/.zrok
+      environment:
+          PFXLOG_NO_JSON: "true"
+      command: share reserved "ref11" --headless
+      links:
+        - pretalx
+
 
 volumes:
   pretalx-db:
