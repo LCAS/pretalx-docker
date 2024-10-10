@@ -15,12 +15,12 @@ services:
       # Hint: Make sure you serve all requests for the `/static/` and `/media/` paths when debug is False. See [installation](https://docs.pretalx.org/administrator/installation/#step-7-ssl) for more information
       #PRETALX_FILESYSTEM_MEDIA: /data/media
       PRETALX_FILESYSTEM_STATIC: /public/static
-    ports:
-      - "8188:80"
+    # ports:
+    #   - "8188:80"
     volumes: 
       - ./conf/pretalx.cfg:/etc/pretalx/pretalx.cfg:ro
-      - pretalx-data:/data
-      - pretalx-public:/public
+      - ./volumes/data:/data
+      - ./volumes/public:/public
     labels:
        traefik.docker.network: "pretalxdocker"
        traefik.enable: "true"
@@ -30,7 +30,7 @@ services:
     #container_name: pretalx-db
     restart: unless-stopped
     volumes:
-      - pretalx-db:/var/lib/mysql
+      - ./volumes/db:/var/lib/mysql
     environment:
       MYSQL_DATABASE: pretalx
       MYSQL_USER: pretalx
@@ -43,7 +43,7 @@ services:
     #container_name: pretalx-redis
     restart: unless-stopped
     volumes: 
-      - pretalx-redis:/data
+      - ./volumes/redis:/data
 
   mail:
     image: bytemark/smtp
@@ -80,16 +80,16 @@ services:
       user: "1002"
       volumes:
         - ${HOME}/.zrok:/.zrok
-        - pretalx-data:/data:ro
+        - ./volumes/data:/data:ro
       environment:
           PFXLOG_NO_JSON: "true"
       command: share reserved "ref11media" --headless
 
 
 
-volumes:
-  pretalx-db:
-  pretalx-data:
-  pretalx-public:
-  pretalx-redis:
+# volumes:
+#   pretalx-db:
+#   pretalx-data:
+#   pretalx-public:
+#   pretalx-redis:
 
