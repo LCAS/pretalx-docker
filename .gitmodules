@@ -1,4 +1,4 @@
 [submodule "pretalx"]
 	path = pretalx
 	url = https://github.com/LCAS/pretalx.git
-	branch = main
+	branch = 2021.2.1-lcas
