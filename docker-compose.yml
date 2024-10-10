@@ -13,7 +13,7 @@ services:
       - mail
     environment:
       # Hint: Make sure you serve all requests for the `/static/` and `/media/` paths when debug is False. See [installation](https://docs.pretalx.org/administrator/installation/#step-7-ssl) for more information
-      PRETALX_FILESYSTEM_MEDIA: /data/media
+      #PRETALX_FILESYSTEM_MEDIA: /data/media
       PRETALX_FILESYSTEM_STATIC: /public/static
     ports:
       - "8188:80"
@@ -54,7 +54,6 @@ services:
       RELAY_PORT: 25
 
   cron:
-    image: lcas.lincoln.ac.uk/lcas/aptly-cron:master
     build:
       context: ./cronjobs
       dockerfile: ./Dockerfile.cron
