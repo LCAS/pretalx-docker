@@ -41,6 +41,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     python3 -m pretalx rebuild
 
+RUN git clone --depth 1 -b master https://github.com/snakedev24/pretalx-oidc-plugin.git /pretalx/src/pretalx_oidc_plugin && \
+    cd /pretalx/src/pretalx_oidc_plugin && \
+    pip3 install .
+
 RUN chmod +x /usr/local/bin/pretalx && \
     cd /pretalx/src && \
     rm -f pretalx.cfg && \
