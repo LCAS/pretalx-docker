@@ -57,6 +57,7 @@ if [ "$1" == "webworker" ]; then
         --workers "${GUNICORN_WORKERS}" \
         --max-requests "${GUNICORN_MAX_REQUESTS}" \
         --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER}" \
+        --timeout 300 \
         --forwarded-allow-ips "${GUNICORN_FORWARDED_ALLOW_IPS}" \
         --log-level=info \
         --bind="${GUNICORN_BIND_ADDR}"
