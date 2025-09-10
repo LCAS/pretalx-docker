@@ -69,6 +69,7 @@ services:
       volumes:
         - ${HOME}/.zrok:/.zrok
       environment:
+          HOME: /
           PFXLOG_NO_JSON: "true"
       command: share reserved "ref11" --headless
       links:
@@ -82,6 +83,7 @@ services:
         - ${HOME}/.zrok:/.zrok
         - ./volumes/data:/data:ro
       environment:
+          HOME: /
           PFXLOG_NO_JSON: "true"
       command: share reserved "ref11media" --headless
 
