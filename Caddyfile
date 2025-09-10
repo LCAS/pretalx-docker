@@ -1,0 +1,57 @@
+{
+	order authenticate before respond
+	# order authorize before reverse_proxy
+	security {
+		oauth identity provider generic {
+			realm generic
+			driver generic
+			client_id zrokshare
+			client_secret Lj093ry9gHwvOuiZ7wfSajgLTfT70iDx
+			scopes openid email profile
+			base_auth_url https://lcas.lincoln.ac.uk/auth/
+			metadata_url https://lcas.lincoln.ac.uk/auth/realms/lcas/.well-known/openid-configuration
+		}
+
+		authentication portal myportal {
+			crypto default token lifetime 3600
+			enable identity provider generic
+			cookie domain zrok.lcas.group
+			ui {
+				links {
+					"My Identity" "/whoami" icon "las la-user"
+					"app" "/app/" icon "las la-user"
+				}
+			}
+			transform user {
+				match realm generic
+				action add role authp/user
+			}
+		}
+
+		authorization policy mypolicy {
+			set auth url /auth
+			inject headers with claims
+			allow roles authp/admin authp/user
+		}
+
+	}
+}
+http:// {
+    # Bind to the zrok share
+    bind {{ .ZrokBindAddress }}
+    route /auth* {
+	    authenticate with myportal
+    }
+    authenticate with myportal
+
+    # All other traffic goes to localhost:3000
+    # authorize with mypolicy
+    route /* {
+        authorize with mypolicy
+        uri strip_prefix /app
+        reverse_proxy localhost:8080 {
+            header_up Host localhost:8080
+	        header_up X-Real-IP {http.request.header.x-forwarded-for}
+        }
+    }
+}

@@ -1,4 +1,3 @@
-version: '3'
 services:
   pretalx:
     image: lcas.lincoln.ac.uk/lcas/pretalx:latest
@@ -54,6 +53,7 @@ services:
       RELAY_PORT: 25
 
   cron:
+    image: lcas.lincoln.ac.uk/lcas/pretalx-cron:latest
     build:
       context: ./cronjobs
       dockerfile: ./Dockerfile.cron
@@ -63,27 +63,92 @@ services:
 
 
   zrok:
-      image: openziti/zrok
-      restart: unless-stopped
-      user: "1002"
-      volumes:
-        - ${HOME}/.zrok:/.zrok
-      environment:
-          PFXLOG_NO_JSON: "true"
-      command: share reserved "ref11" --headless
-      links:
-        - pretalx
+    # currently requires the old version as the server hasn't been updated yet
+    image: openziti/zrok:1.0.8
+    volumes:
+      - zrok-data:/zrok/.zrok
+    restart: unless-stopped
+    environment:
+      HOME: /zrok
+      PFXLOG_NO_JSON: "true"
+    entrypoint: []
+    tty: true
+    secrets:
+      - zrok_token
+    user: root
+    links:
+      - pretalx
+
+    command: >
+      bash -c "
+
+      trap 'echo Stopping zrok service...; zrok release ${ZROK_NAME} || true;  zrok disable || true; echo Zrok service stopped.' EXIT;
+
+      (zrok -p disable || true);
+      zrok config set apiEndpoint ${ZROK_API_ENDPOINT} &&
+      zrok enable -d '${ZROK_ENV_NAME}' $(cat /run/secrets/zrok_token) &&
+      (zrok release ${ZROK_NAME} || true) &&
+      zrok reserve public -n ${ZROK_NAME} --basic-auth ${ZROK_BASICAUTH} http://pretalx:80 &&
+      zrok share reserved ${ZROK_NAME} --headless
+      "
 
   zrok_media:
-      image: openziti/zrok
-      restart: unless-stopped
-      user: "1002"
-      volumes:
-        - ${HOME}/.zrok:/.zrok
-        - ./volumes/data:/data:ro
-      environment:
-          PFXLOG_NO_JSON: "true"
-      command: share reserved "ref11media" --headless
+    # currently requires the old version as the server hasn't been updated yet
+    image: openziti/zrok:1.0.8
+    volumes:
+      - zrok-data-media:/zrok/.zrok
+      - ./volumes/data:/data:ro
+  
+    restart: unless-stopped
+    environment:
+      HOME: /zrok
+      PFXLOG_NO_JSON: "true"
+    entrypoint: []
+    tty: true
+    secrets:
+      - zrok_token
+    user: root
+    links:
+      - pretalx
+
+    command: >
+      bash -c "
+
+      trap 'echo Stopping zrok service...; zrok release ${ZROK_NAME}media || true;  zrok disable || true; echo Zrok service stopped.' EXIT;
+
+      (zrok -p disable || true);
+      zrok config set apiEndpoint ${ZROK_API_ENDPOINT} &&
+      zrok enable -d '${ZROK_ENV_NAME}' $(cat /run/secrets/zrok_token) &&
+      (zrok release ${ZROK_NAME}media || true) &&
+      zrok reserve public -n ${ZROK_NAME}media -b web --basic-auth ${ZROK_BASICAUTH} /data/media &&
+      zrok share reserved ${ZROK_NAME}media --headless
+      "
+
+
+  # zrok:
+  #     image: openziti/zrok
+  #     restart: unless-stopped
+  #     user: "1002"
+  #     volumes:
+  #       - ${HOME}/.zrok:/.zrok
+  #     environment:
+  #         HOME: /
+  #         PFXLOG_NO_JSON: "true"
+  #     command: share reserved "ref11" --headless
+  #     links:
+  #       - pretalx
+
+  # zrok_media:
+  #     image: openziti/zrok
+  #     restart: unless-stopped
+  #     user: "1002"
+  #     volumes:
+  #       - ${HOME}/.zrok:/.zrok
+  #       - ./volumes/data:/data:ro
+  #     environment:
+  #         HOME: /
+  #         PFXLOG_NO_JSON: "true"
+  #     command: share reserved "ref11media" --headless
 
 
 
@@ -93,3 +158,10 @@ services:
 #   pretalx-public:
 #   pretalx-redis:
 
+secrets:
+  zrok_token:
+    environment: ZROK_TOKEN
+
+volumes:
+  zrok-data:
+  zrok-data-media:

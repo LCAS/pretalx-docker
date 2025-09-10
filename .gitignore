@@ -1,1 +1,5 @@
 volumes/
+*.bak
+
+volumes-*/
+.env
