@@ -26,6 +26,7 @@ RUN pip3 install --no-cache-dir -U pip setuptools wheel && \
     pip3 install --no-cache-dir -e /pretalx/[postgres,redis] && \
     pip3 install --no-cache-dir pylibmc gunicorn
 
+WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \
     rm -f /pretalx/src/pretalx.cfg /pretalx/src/data/.secret
 
