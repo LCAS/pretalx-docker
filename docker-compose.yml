@@ -6,7 +6,9 @@ services:
       dockerfile: ./Dockerfile
     container_name: pretalx_ref11
     restart: unless-stopped
-    depends_on: 
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
       - redis
       - db
       - mail
@@ -28,14 +30,14 @@ services:
     image: mysql:latest
     #container_name: pretalx-db
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./volumes/db:/var/lib/mysql
     environment:
-      MYSQL_DATABASE: pretalx
-      MYSQL_USER: pretalx
-      MYSQL_PASSWORD: veryunsecureplschange
-      MYSQL_RANDOM_ROOT_PASSWORD: "1"
-    command: ['mysqld', '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
+      POSTGRES_PASSWORD: veryunsecureplschange # same password as one that you will put in pretalx.cfg file later on
+      POSTGRES_USER: pretalx
+      POSTGRES_DB: pretalx
 
   redis:
     image: redis:latest

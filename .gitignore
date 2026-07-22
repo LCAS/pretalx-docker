@@ -3,3 +3,4 @@ volumes/
 
 volumes-*/
 .env
+.DS_Store

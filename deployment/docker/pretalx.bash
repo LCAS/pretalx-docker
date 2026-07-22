@@ -48,7 +48,7 @@ if [ "$AUTOMIGRATE" = "yes" ]; then
 fi
 
 if [ "$1" == "all" ]; then
-    exec sudo /usr/bin/supervisord -n -c /etc/supervisord.conf
+    exec /usr/bin/supervisord -n -c /etc/supervisord.conf
 fi
 
 if [ "$1" == "webworker" ]; then
@@ -69,11 +69,6 @@ fi
 
 if [ "$1" == "shell" ]; then
     exec python3 -m pretalx shell
-fi
-
-if [ "$1" == "upgrade" ]; then
-    python3 -m pretalx rebuild
-    exec python3 -m pretalx regenerate_css
 fi
 
 exec python3 -m pretalx "$@"
