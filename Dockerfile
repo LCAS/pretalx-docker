@@ -37,7 +37,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get -qq update && \
     DEBIAN_FRONTEND=noninteractive apt-get -qq install -y --no-install-recommends \
         gettext locales \
         libmariadb3 libmemcached11t64 \
-        nodejs npm \
+        nodejs npm git \
         supervisor && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
