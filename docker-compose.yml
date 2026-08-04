@@ -40,21 +40,23 @@ services:
        traefik.docker.network: "pretalxdocker"
        traefik.enable: "true"
 
+
+
   db:
-    image: mysql:latest
-    #container_name: pretalx-db
+    image: docker.io/library/postgres:15-alpine
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ./volumes/db:/var/lib/mysql
+      - ./volumes/db:/var/lib/postgresql/data
     environment:
-      MYSQL_ROOT_PASSWORD: veryunsecureplschange
-      MYSQL_PASSWORD: veryunsecureplschange # same password as one that you will put in pretalx.cfg file later on
-      MYSQL_USER: pretalx
-      MYSQL_DATABASE: pretalx
+      POSTGRES_PASSWORD: veryunsecureplschange # same password as one that you will put in pretalx.cfg file later on
+      POSTGRES_USER: pretalx
+      POSTGRES_DB: pretalx
+
+
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "pg_isready", "-U", "pretalx"]
       interval: 1m30s
       timeout: 30s
       retries: 5
