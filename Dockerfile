@@ -25,6 +25,7 @@ COPY --chown=root:root pretalx/src /pretalx/src
 RUN pip3 install --no-cache-dir -U pip setuptools wheel && \
     pip3 install --no-cache-dir -e /pretalx/[postgres,redis] && \
     pip3 install --no-cache-dir pylibmc gunicorn
+RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx-socialauth
 
 WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \
@@ -57,9 +58,9 @@ COPY --from=builder --chown=pretalxuser:pretalxuser /pretalx /pretalx
 COPY --chown=root:root deployment/docker/pretalx.bash /usr/local/bin/pretalx
 COPY --chown=root:root deployment/docker/supervisord.conf /etc/supervisord.conf
 
-RUN git clone --depth 1 -b master https://github.com/snakedev24/pretalx-oidc-plugin.git /pretalx/src/pretalx_oidc_plugin && \
-    cd /pretalx/src/pretalx_oidc_plugin && \
-    pip3 install .
+# RUN git clone --depth 1 -b master https://github.com/snakedev24/pretalx-oidc-plugin.git /pretalx/src/pretalx_oidc_plugin && \
+#     cd /pretalx/src/pretalx_oidc_plugin && \
+#     pip3 install .
 
 RUN chmod +x /usr/local/bin/pretalx && \
     chown pretalxuser:pretalxuser /data /public /etc/pretalx
