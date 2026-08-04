@@ -8,7 +8,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     NPM_CONFIG_LOGLEVEL=error \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
-    NPM_CONFIG_PROGRESS=false
+    NPM_CONFIG_PROGRESS=false \
+    PRETALX_FILESYSTEM_STATIC=/static
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get -qq update && \
     DEBIAN_FRONTEND=noninteractive apt-get -qq install -y --no-install-recommends \
@@ -29,6 +30,7 @@ RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pre
 
 WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \
+    python3 -m pretalx collectstatic --noinput && \
     rm -f /pretalx/src/pretalx.cfg /pretalx/src/data/.secret
 
 
@@ -54,6 +56,7 @@ ENV LC_ALL=C.UTF-8
 COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
 COPY --from=builder /usr/local/bin/gunicorn /usr/local/bin/celery /usr/local/bin/
 COPY --from=builder --chown=pretalxuser:pretalxuser /pretalx /pretalx
+COPY --from=builder --chown=pretalxuser:pretalxuser /static /static
 
 COPY --chown=root:root deployment/docker/pretalx.bash /usr/local/bin/pretalx
 COPY --chown=root:root deployment/docker/supervisord.conf /etc/supervisord.conf
