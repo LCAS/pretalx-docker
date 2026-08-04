@@ -142,7 +142,7 @@ services:
     image: openziti/zrok:1.0.8
     volumes:
       - zrok-data-media:/zrok/.zrok
-      - ./volumes/data:/data:ro
+      - ./volumes/public:/public:ro
   
     restart: unless-stopped
     environment:
@@ -165,7 +165,7 @@ services:
       zrok config set apiEndpoint ${ZROK_API_ENDPOINT} &&
       zrok enable -d '${ZROK_ENV_NAME}' $(cat /run/secrets/zrok_token) &&
       (zrok release ${ZROK_NAME}media || true) &&
-      zrok reserve public -n ${ZROK_NAME}media -b web /data/media &&
+      zrok reserve public -n ${ZROK_NAME}media -b web /public/media &&
       zrok share reserved ${ZROK_NAME}media --headless
       "
 
