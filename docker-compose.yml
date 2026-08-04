@@ -1,4 +1,12 @@
 services:
+
+  init-volumes:
+    image: busybox
+    command: /bin/sh -c "mkdir -p /mnt/data /mnt/public && chown -R 999:999 /mnt/public /mnt/data && echo 'Volumes initialized'"
+    volumes:
+      - ./volumes:/mnt
+    restart: no
+
   pretalx:
     image: lcas.lincoln.ac.uk/lcas/pretalx:latest
     build:
@@ -9,9 +17,15 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - redis
-      - db
-      - mail
+      init-volumes:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      mail:
+        condition: service_started
+      
     environment:
       # Hint: Make sure you serve all requests for the `/static/` and `/media/` paths when debug is False. See [installation](https://docs.pretalx.org/administrator/installation/#step-7-ssl) for more information
       #PRETALX_FILESYSTEM_MEDIA: /data/media
@@ -35,16 +49,31 @@ services:
     volumes:
       - ./volumes/db:/var/lib/mysql
     environment:
-      POSTGRES_PASSWORD: veryunsecureplschange # same password as one that you will put in pretalx.cfg file later on
-      POSTGRES_USER: pretalx
-      POSTGRES_DB: pretalx
+      MYSQL_ROOT_PASSWORD: veryunsecureplschange
+      MYSQL_PASSWORD: veryunsecureplschange # same password as one that you will put in pretalx.cfg file later on
+      MYSQL_USER: pretalx
+      MYSQL_DATABASE: pretalx
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
 
   redis:
     image: redis:latest
     #container_name: pretalx-redis
     restart: unless-stopped
     volumes: 
-      - ./volumes/redis:/data
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
 
   mail:
     image: bytemark/smtp
@@ -53,6 +82,14 @@ services:
       MAILNAME: "coltrane.network.uni"
       RELAY_HOST: mailslot.lincoln.ac.uk
       RELAY_PORT: 25
+    healthcheck:
+      test: ["CMD", "mailq"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+      
 
   cron:
     image: lcas.lincoln.ac.uk/lcas/pretalx-cron:latest
@@ -90,7 +127,7 @@ services:
       zrok config set apiEndpoint ${ZROK_API_ENDPOINT} &&
       zrok enable -d '${ZROK_ENV_NAME}' $(cat /run/secrets/zrok_token) &&
       (zrok release ${ZROK_NAME} || true) &&
-      zrok reserve public -n ${ZROK_NAME} --basic-auth ${ZROK_BASICAUTH} http://pretalx:80 &&
+      zrok reserve public -n ${ZROK_NAME} http://pretalx:80 &&
       zrok share reserved ${ZROK_NAME} --headless
       "
 
@@ -122,7 +159,7 @@ services:
       zrok config set apiEndpoint ${ZROK_API_ENDPOINT} &&
       zrok enable -d '${ZROK_ENV_NAME}' $(cat /run/secrets/zrok_token) &&
       (zrok release ${ZROK_NAME}media || true) &&
-      zrok reserve public -n ${ZROK_NAME}media -b web --basic-auth ${ZROK_BASICAUTH} /data/media &&
+      zrok reserve public -n ${ZROK_NAME}media -b web /data/media &&
       zrok share reserved ${ZROK_NAME}media --headless
       "
 
@@ -167,3 +204,4 @@ secrets:
 volumes:
   zrok-data:
   zrok-data-media:
+  redis:
