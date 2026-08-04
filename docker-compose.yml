@@ -30,6 +30,10 @@ services:
       # Hint: Make sure you serve all requests for the `/static/` and `/media/` paths when debug is False. See [installation](https://docs.pretalx.org/administrator/installation/#step-7-ssl) for more information
       #PRETALX_FILESYSTEM_MEDIA: /data/media
       PRETALX_FILESYSTEM_STATIC: /static
+      # zrok terminates TLS and forwards plain HTTP over the docker network, so gunicorn
+      # must trust the X-Forwarded-Proto header from the zrok container to correctly
+      # detect HTTPS (otherwise redirect_uri and other absolute URLs are built as http://)
+      GUNICORN_FORWARDED_ALLOW_IPS: "*"
     # ports:
     #   - "8188:80"
     volumes: 

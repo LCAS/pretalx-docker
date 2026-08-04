@@ -27,9 +27,11 @@ RUN pip3 install --no-cache-dir -U pip setuptools wheel && \
     pip3 install --no-cache-dir -e /pretalx/[postgres,redis] && \
     pip3 install --no-cache-dir pylibmc gunicorn
 RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx-socialauth
+RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx_ref_wording
 
 WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \
+    python3 -m pretalx makemessages -l en_Rex && \
     python3 -m pretalx collectstatic --noinput && \
     rm -f /pretalx/src/pretalx.cfg /pretalx/src/data/.secret
 
