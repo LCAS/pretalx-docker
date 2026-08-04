@@ -32,6 +32,7 @@ RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pre
 WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \
     python3 -m pretalx makemessages -l en_Rex && \
+    python3 -m pretalx rebuild && \
     python3 -m pretalx collectstatic --noinput && \
     rm -f /pretalx/src/pretalx.cfg /pretalx/src/data/.secret
 
