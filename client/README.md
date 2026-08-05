@@ -37,15 +37,26 @@ event slug. These are resolved with the following precedence:
    event = "myevent"
   content_locale = "en_gb"
 
+  [profiles.default.custom_fields]
+  # Question id or identifier for the submission custom file field.
+  pdf_question = 123
+
    [profiles.ref11]
    url = "https://ref11dev.zrok.lcas.group"
    token = "your-api-token"
    event = "ref11"
   content_locale = "en_gb"
+
+  [profiles.ref11.custom_fields]
+  pdf_question = 123
    ```
 
 If not provided in environment/config, `content_locale` defaults to `en_gb` for
 proposal creation commands.
+
+When `profiles.<name>.custom_fields.pdf_question` is set, `submit-proposal --pdf`
+stores the upload as an Answer on that custom field (via `/answers/`) instead of
+adding it as a submission resource.
 
 Check what would be used with:
 

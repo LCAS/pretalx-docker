@@ -159,6 +159,9 @@ class PretalxClient:
     def get_access_code(self, event: str, code_id: Any) -> dict:
         return self.get(f"events/{event}/access-codes/{code_id}/")
 
+    def list_questions(self, event: str, all_pages: bool = False) -> list[dict]:
+        return self.paginated(f"events/{event}/questions/", all_pages=all_pages)
+
     # -- speakers ---------------------------------------------------------
 
     def list_speakers(self, event: str, all_pages: bool = False) -> list[dict]:
@@ -251,3 +254,27 @@ class PretalxClient:
 
     def remove_resource(self, event: str, code: str, resource_id: Any) -> None:
         self.delete(f"events/{event}/submissions/{code}/resources/{resource_id}/")
+
+    def create_answer(
+        self,
+        event: str,
+        question: int,
+        answer: str,
+        submission: Optional[str] = None,
+        review: Optional[int] = None,
+        person: Optional[str] = None,
+        answer_file: Optional[str] = None,
+        options: Optional[list[int]] = None,
+    ) -> dict:
+        data: dict[str, Any] = {"question": question, "answer": answer}
+        if submission is not None:
+            data["submission"] = submission
+        if review is not None:
+            data["review"] = review
+        if person is not None:
+            data["person"] = person
+        if answer_file is not None:
+            data["answer_file"] = answer_file
+        if options is not None:
+            data["options"] = options
+        return self.post(f"events/{event}/answers/", json=data)

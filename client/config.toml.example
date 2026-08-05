@@ -8,8 +8,15 @@ token = "your-api-token"
 event = "myevent"
 content_locale = "en_gb"
 
+[profiles.default.custom_fields]
+# Question id or identifier for the submission custom file field.
+pdf_question = 1
+
 [profiles.ref11]
 url = "https://ref11dev.zrok.lcas.group"
 token = "your-api-token"
 event = "ref11"
 content_locale = "en_gb"
+
+[profiles.ref11.custom_fields]
+pdf_question = 1

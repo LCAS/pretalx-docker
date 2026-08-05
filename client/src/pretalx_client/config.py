@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +26,7 @@ class Config:
     event: Optional[str] = None
     api_version: Optional[str] = None
     content_locale: str = DEFAULT_CONTENT_LOCALE
+    custom_fields: dict[str, str | int] = field(default_factory=dict)
     verify_ssl: bool = True
     profile: str = DEFAULT_PROFILE
     config_file: Path = DEFAULT_CONFIG_PATH
@@ -98,6 +99,10 @@ def load_config(
         or file_values.get("content_locale")
         or DEFAULT_CONTENT_LOCALE
     )
+    profile_custom_fields = file_values.get("custom_fields")
+    resolved_custom_fields: dict[str, str | int] = (
+        profile_custom_fields if isinstance(profile_custom_fields, dict) else {}
+    )
 
     return Config(
         url=resolved_url.rstrip("/") if resolved_url else None,
@@ -105,6 +110,7 @@ def load_config(
         event=resolved_event,
         api_version=resolved_api_version,
         content_locale=str(resolved_content_locale),
+        custom_fields=resolved_custom_fields,
         verify_ssl=verify_ssl,
         profile=resolved_profile,
         config_file=resolved_config_file,

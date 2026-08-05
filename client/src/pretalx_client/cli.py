@@ -24,11 +24,18 @@ token = \"your-api-token\"
 event = \"myevent\"
 content_locale = \"en_gb\"
 
+[profiles.default.custom_fields]
+# Question id or identifier for the submission custom file field.
+pdf_question = 123
+
 [profiles.ref11]
 url = \"https://ref11dev.zrok.lcas.group\"
 token = \"your-api-token\"
 event = \"ref11\"
 content_locale = \"en_gb\"
+
+[profiles.ref11.custom_fields]
+pdf_question = 123
 """
 
 app = typer.Typer(
@@ -106,6 +113,13 @@ _LOOKUP_CONFIG = {
     "tag": ("list_tags", "tag"),
 }
 
+_PDF_QUESTION_KEYS = (
+    "pdf_question",
+    "pdf_question_id",
+    "output_pdf_question",
+    "output_pdf",
+)
+
 
 def _label(value: object) -> str:
     if isinstance(value, dict):
@@ -127,6 +141,38 @@ def _resolve_reference(client: PretalxClient, event: str, kind: str, value: str)
             f"Multiple {kind.replace('_', ' ')}s match {value!r}; use its numeric ID instead"
         )
     return matches[0]["id"]
+
+
+def _resolve_question_reference(client: PretalxClient, event: str, value: str | int) -> int:
+    """Resolve a custom field question reference from id or identifier."""
+    if isinstance(value, int):
+        return value
+    if value.isdigit():
+        return int(value)
+
+    questions = client.list_questions(event, all_pages=True)
+    identifier_matches = [
+        question for question in questions if str(question.get("identifier") or "").lower() == value.lower()
+    ]
+    if len(identifier_matches) == 1:
+        return int(identifier_matches[0]["id"])
+    if len(identifier_matches) > 1:
+        raise typer.BadParameter(
+            f"Multiple custom fields match identifier {value!r}; use numeric id instead"
+        )
+
+    label_matches = [question for question in questions if _label(question.get("question")).lower() == value.lower()]
+    if len(label_matches) == 1:
+        return int(label_matches[0]["id"])
+    if len(label_matches) > 1:
+        raise typer.BadParameter(
+            f"Multiple custom fields match label {value!r}; use question identifier or numeric id"
+        )
+
+    raise typer.BadParameter(
+        f"No custom field question found matching {value!r}. "
+        "Set profiles.<name>.custom_fields.pdf_question to a valid question id or identifier."
+    )
 
 
 def _normalise_locale(value: str) -> str:
@@ -179,6 +225,17 @@ def _resolve_content_locale(client: PretalxClient, event: str, value: str) -> st
 def _effective_content_locale(state: State, value: Optional[str]) -> str:
     """Resolve content locale input, falling back to configured/global default."""
     return value or state.config.content_locale
+
+
+def _configured_pdf_question(config: Config) -> Optional[str | int]:
+    for key in _PDF_QUESTION_KEYS:
+        value = config.custom_fields.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
 
 
 def _effective_resource_description(
@@ -294,6 +351,7 @@ def config_show(ctx: typer.Context):
             "event": config.event,
             "api_version": config.api_version,
             "content_locale": config.content_locale,
+            "custom_fields": config.custom_fields,
             "profile": config.profile,
             "config_file": str(config.config_file),
         },
@@ -771,7 +829,7 @@ def submit_proposal(
     resource_description: Optional[str] = typer.Option(
         None,
         "--resource-description",
-        help="Description for the attached PDF/document (defaults to filename)",
+        help="Description for the attached PDF answer/resource (defaults to filename)",
     ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
 ):
@@ -805,13 +863,28 @@ def submit_proposal(
             resource_description,
             file=pdf,
         )
-        submission = state.client.add_resource(
-            event,
-            code,
-            resource=resource_ref,
-            description=effective_resource_description,
-            is_public=True,
-        )
+        pdf_question_reference = _configured_pdf_question(state.config)
+        if pdf_question_reference is not None:
+            question_id = _resolve_question_reference(
+                state.client,
+                event,
+                str(pdf_question_reference),
+            )
+            submission = state.client.create_answer(
+                event=event,
+                question=question_id,
+                submission=code,
+                answer=effective_resource_description,
+                answer_file=resource_ref,
+            )
+        else:
+            submission = state.client.add_resource(
+                event,
+                code,
+                resource=resource_ref,
+                description=effective_resource_description,
+                is_public=True,
+            )
     if image is not None:
         image_ref = state.client.upload_file(image)
         submission = state.client.update_submission(event, code, {"image": image_ref})
