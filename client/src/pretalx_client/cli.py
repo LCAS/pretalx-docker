@@ -952,6 +952,75 @@ def _csv_headers_for_submission_create(config: Config) -> list[str]:
     return headers
 
 
+def _csv_scalar(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        return _label(value)
+    return str(value)
+
+
+def _submission_row_base(submission: dict) -> dict[str, str]:
+    tags = submission.get("tags") or []
+    if isinstance(tags, list):
+        tag_value = ";".join(_csv_scalar(tag) for tag in tags)
+    else:
+        tag_value = _csv_scalar(tags)
+
+    return {
+        "title": _csv_scalar(submission.get("title")),
+        "submission_type": _csv_scalar(submission.get("submission_type")),
+        "abstract": _csv_scalar(submission.get("abstract")),
+        "description": _csv_scalar(submission.get("description")),
+        "track": _csv_scalar(submission.get("track")),
+        "tag": tag_value,
+        "duration": _csv_scalar(submission.get("duration")),
+        "content_locale": _csv_scalar(submission.get("content_locale")),
+        "slot_count": _csv_scalar(submission.get("slot_count")),
+        "do_not_record": _csv_scalar(submission.get("do_not_record")),
+        "notes": _csv_scalar(submission.get("notes")),
+        "internal_notes": _csv_scalar(submission.get("internal_notes")),
+        "image": _csv_scalar(submission.get("image")),
+    }
+
+
+def _question_ids_for_custom_fields(
+    state: State,
+    event: str,
+    configured_fields: dict[str, str | int],
+) -> dict[str, int]:
+    resolved: dict[str, int] = {}
+    for field_name, question_reference in configured_fields.items():
+        resolved[field_name] = _resolve_question_reference(state.client, event, question_reference)
+    return resolved
+
+
+def _custom_field_values_for_submission(
+    state: State,
+    event: str,
+    submission_code: str,
+    question_ids_by_field: dict[str, int],
+) -> dict[str, str]:
+    answers = state.client.list_answers(event, params={"submission": submission_code}, all_pages=True)
+    by_question = {answer.get("question"): answer for answer in answers}
+
+    values: dict[str, str] = {}
+    for field_name, question_id in question_ids_by_field.items():
+        answer = by_question.get(question_id)
+        if not isinstance(answer, dict):
+            values[field_name] = ""
+            continue
+        if answer.get("answer_file"):
+            values[field_name] = _csv_scalar(answer.get("answer_file"))
+        else:
+            values[field_name] = _csv_scalar(answer.get("answer"))
+    return values
+
+
 @submissions_app.command("csvexport")
 @handle_errors
 def submissions_csvexport(
@@ -960,17 +1029,53 @@ def submissions_csvexport(
         Path("submissions_template.csv"),
         "--output",
         "-o",
-        help="Path to write CSV template",
+        help="Path to write CSV file",
+    ),
+    template: bool = typer.Option(
+        False,
+        "--template",
+        help="Write only CSV header row (no submission data)",
+    ),
+    all: bool = typer.Option(
+        True,
+        "--all/--first-page",
+        help="Export all pages of submissions (default: all)",
     ),
 ):
-    """Export a CSV template matching accepted `submissions create`/`csvimport` columns."""
+    """Export submissions to CSV with columns accepted by `submissions create`/`csvimport`."""
     state: State = ctx.obj
+    event = state.require_event()
     headers = _csv_headers_for_submission_create(state.config)
     output.parent.mkdir(parents=True, exist_ok=True)
+
+    rows: list[dict[str, str]] = []
+    if not template:
+        submissions = state.client.list_submissions(event, all_pages=all)
+        configured_fields = _configured_custom_fields(state.config)
+        question_ids_by_field = _question_ids_for_custom_fields(state, event, configured_fields)
+
+        for submission in submissions:
+            row = _submission_row_base(submission)
+            row.update(
+                _custom_field_values_for_submission(
+                    state,
+                    event,
+                    submission.get("code", ""),
+                    question_ids_by_field,
+                )
+            )
+            rows.append(row)
+
     with output.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=headers)
         writer.writeheader()
-    typer.echo(f"Wrote CSV template to {output}")
+        if rows:
+            writer.writerows(rows)
+
+    if template:
+        typer.echo(f"Wrote CSV template to {output}")
+    else:
+        typer.echo(f"Wrote {len(rows)} submissions to {output}")
 
 
 @submissions_app.command("csvimport")

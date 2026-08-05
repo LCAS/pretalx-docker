@@ -135,10 +135,16 @@ including file uploads for fields such as `pdf_question`.
 
 ### Bulk import/export CSV
 
-Use `csvexport` to create a template with the accepted columns:
+Use `csvexport` to export submissions to CSV with accepted columns:
 
 ```bash
 uv run pretalx-client submissions csvexport --output submissions_template.csv
+```
+
+Use `--template` if you only want a blank header row:
+
+```bash
+uv run pretalx-client submissions csvexport --template --output submissions_template.csv
 ```
 
 Then fill rows and import with:

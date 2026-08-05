@@ -166,6 +166,14 @@ class PretalxClient:
         params = {"expand": "options"} if expand_options else None
         return self.get(f"events/{event}/questions/{question_id}/", params=params)
 
+    def list_answers(
+        self,
+        event: str,
+        params: Optional[dict[str, Any]] = None,
+        all_pages: bool = False,
+    ) -> list[dict]:
+        return self.paginated(f"events/{event}/answers/", params=params, all_pages=all_pages)
+
     # -- speakers ---------------------------------------------------------
 
     def list_speakers(self, event: str, all_pages: bool = False) -> list[dict]:
