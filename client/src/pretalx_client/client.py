@@ -53,7 +53,7 @@ class PretalxClient:
                 payload = response.text
             raise PretalxAPIError(response.status_code, payload)
 
-    def get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict:
+    def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         response = self._http.get(path, params=params)
         self._raise_for_error(response)
         return response.json()
@@ -65,6 +65,14 @@ class PretalxClient:
         all_pages: bool = False,
     ) -> list[dict]:
         data = self.get(path, params=params)
+        if isinstance(data, list):
+            return data
+
+        if not isinstance(data, dict):
+            raise TypeError(
+                f"Expected list or dict response for list endpoint {path!r}, got {type(data).__name__}"
+            )
+
         results = list(data.get("results", []))
         if all_pages:
             next_url = data.get("next")
@@ -72,6 +80,14 @@ class PretalxClient:
                 response = self._http.get(next_url)
                 self._raise_for_error(response)
                 data = response.json()
+                if isinstance(data, list):
+                    results.extend(data)
+                    break
+                if not isinstance(data, dict):
+                    raise TypeError(
+                        "Expected list or dict response while following pagination, "
+                        f"got {type(data).__name__}"
+                    )
                 results.extend(data.get("results", []))
                 next_url = data.get("next")
         return results
