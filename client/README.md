@@ -61,24 +61,24 @@ If not provided in environment/config, `content_locale` defaults to `en_gb` for
 proposal creation commands.
 
 If not provided in environment/config, `submission_type` defaults to `1` for
-`submit-proposal` and `submissions create`.
+`submissions create`.
 
 When `profiles.<name>.custom_fields.pdf_question` is set, pass
-`--pdf-question /path/to/file.pdf` to `submit-proposal` to upload the file as an
-Answer on that custom field (via `/answers/`).
+`--pdf-question /path/to/file.pdf` to `submissions create` to upload the file as
+an Answer on that custom field (via `/answers/`).
 
 Any key under `profiles.<name>.custom_fields` becomes a dynamic
-`submit-proposal` flag by replacing `_` with `-`, e.g.:
+`submissions create` flag by replacing `_` with `-`, e.g.:
 
 ```bash
-uv run pretalx-client submit-proposal \
+uv run pretalx-client submissions create \
   --title "Test" \
   --figshare-id 12345 \
   --self-assessment 0.5 \
   --pdf-question paper.pdf
 ```
 
-`uv run pretalx-client submit-proposal --help` shows the currently configured
+`uv run pretalx-client submissions create --help` shows the currently configured
 dynamic flags from the active profile in the command description.
 
 Check what would be used with:
@@ -114,10 +114,10 @@ uv run pretalx-client tracks list --event myevent
 uv run pretalx-client tags list --event myevent
 ```
 
-### Submit a proposal with custom field answers in one step
+### Create a proposal with custom field answers
 
 ```bash
-uv run pretalx-client submit-proposal \
+uv run pretalx-client submissions create \
   --event myevent \
   --title "My Great Talk" \
   --submission-type Talk \
@@ -132,6 +132,23 @@ uv run pretalx-client submit-proposal \
 
 This creates the submission and then posts answers to configured custom fields,
 including file uploads for fields such as `pdf_question`.
+
+### Bulk import/export CSV
+
+Use `csvexport` to create a template with the accepted columns:
+
+```bash
+uv run pretalx-client submissions csvexport --output submissions_template.csv
+```
+
+Then fill rows and import with:
+
+```bash
+uv run pretalx-client submissions csvimport --file submissions_template.csv
+```
+
+CSV headers mirror `submissions create` flags, for example:
+`title`, `submission_type`, `content_locale`, `figshare_id`, `self_assessment`, `pdf_question`.
 
 ### Manage submissions individually
 
@@ -157,7 +174,7 @@ pretalx's `/api/upload/` endpoint expects the raw file bytes as the request body
 with `Content-Type` and `Content-Disposition: attachment; filename="..."` headers —
 not a `multipart/form-data` upload. This client implements that directly; you don't
 need to think about it when using file-based options like
-`submissions resources add --file`, `speakers update --avatar`, `submit-proposal --image`,
+`submissions resources add --file`, `speakers update --avatar`, `submissions create --image`,
 or dynamic file custom-field flags (e.g. `--pdf-question`).
 
 ## Scope
@@ -167,5 +184,5 @@ This client focuses on the core proposal-submission workflow: events, submission
 tracks, tags, and access-codes (the latter four as read-only lookups). It does not
 cover teams, schedules, rooms, reviews, mail templates, speaker-information, feedback,
 or custom questions/answers as dedicated commands — for those, use `--extra <file.json>`
-on `submissions create`/`update`/`submit-proposal` to merge arbitrary extra fields into
+on `submissions create`/`update` to merge arbitrary extra fields into
 the request body.

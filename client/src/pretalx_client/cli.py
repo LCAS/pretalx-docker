@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import csv
 import json
 from pathlib import Path
 from typing import Any, List, Optional
@@ -231,6 +232,9 @@ def _effective_submission_type(state: State, value: Optional[str]) -> str:
 
 
 def _configured_custom_fields(config: Config) -> dict[str, str | int]:
+    aliases = {
+        "pdf": "pdf_question",
+    }
     configured: dict[str, str | int] = {}
     for key, value in config.custom_fields.items():
         if not isinstance(key, str) or not key.strip():
@@ -239,7 +243,8 @@ def _configured_custom_fields(config: Config) -> dict[str, str | int]:
             continue
         if isinstance(value, str) and not value.strip():
             continue
-        configured[key.strip()] = value
+        canonical_key = aliases.get(key.strip(), key.strip())
+        configured[canonical_key] = value
     return configured
 
 
@@ -405,9 +410,9 @@ def _effective_resource_description(
     return "Attachment"
 
 
-def _submit_proposal_help_text() -> str:
+def _submissions_create_help_text() -> str:
     """Build command help text including currently configured dynamic flags."""
-    base = "Create a proposal and attach files/custom field answers in one step."
+    base = "Create a new submission (proposal), including configured custom field answers."
     try:
         config = load_config()
         configured_fields = _configured_custom_fields(config)
@@ -417,14 +422,110 @@ def _submit_proposal_help_text() -> str:
     if not configured_fields:
         return base
 
-    dynamic_flags = ", ".join(
-        f"--{name.replace('_', '-')}" for name in configured_fields
-    )
+    dynamic_flags = ", ".join(f"--{name.replace('_', '-')}" for name in configured_fields)
     return (
         base
         + "\n\nConfigured dynamic custom-field flags from the active profile: "
         + dynamic_flags
     )
+
+
+def _parse_optional_int(raw_value: str, field_name: str) -> Optional[int]:
+    value = raw_value.strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise typer.BadParameter(f"Invalid integer for {field_name}: {raw_value!r}") from exc
+
+
+def _parse_optional_bool(raw_value: str, field_name: str) -> Optional[bool]:
+    value = raw_value.strip().lower()
+    if not value:
+        return None
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    raise typer.BadParameter(f"Invalid boolean for {field_name}: {raw_value!r}")
+
+
+def _parse_optional_tags(raw_value: str) -> Optional[list[str]]:
+    value = raw_value.strip()
+    if not value:
+        return None
+    if ";" in value:
+        parts = value.split(";")
+    else:
+        parts = value.split(",")
+    tags = [part.strip() for part in parts if part.strip()]
+    return tags or None
+
+
+def _create_submission_with_answers(
+    state: State,
+    *,
+    title: str,
+    submission_type: Optional[str],
+    abstract: Optional[str],
+    description: Optional[str],
+    track: Optional[str],
+    tags: Optional[list[str]],
+    duration: Optional[int],
+    content_locale: Optional[str],
+    slot_count: Optional[int],
+    do_not_record: Optional[bool],
+    notes: Optional[str],
+    internal_notes: Optional[str],
+    extra: Optional[Path],
+    image: Optional[Path],
+    custom_field_values: dict[str, str],
+) -> tuple[dict, list[dict]]:
+    event = state.require_event()
+    resolved_content_locale = _effective_content_locale(state, content_locale)
+    resolved_submission_type = _effective_submission_type(state, submission_type)
+
+    data = _build_submission_payload(
+        event,
+        state.client,
+        title=title,
+        abstract=abstract,
+        description=description,
+        submission_type=resolved_submission_type,
+        track=track,
+        tags=tags,
+        duration=duration,
+        content_locale=resolved_content_locale,
+        slot_count=slot_count,
+        do_not_record=do_not_record,
+        notes=notes,
+        internal_notes=internal_notes,
+        extra=extra,
+    )
+    submission = state.client.create_submission(event, data)
+    code = submission["code"]
+
+    configured_custom_fields = _configured_custom_fields(state.config)
+    created_answers: list[dict] = []
+    for field_name, value in custom_field_values.items():
+        question_reference = configured_custom_fields[field_name]
+        created_answers.append(
+            _create_custom_field_answer(
+                state=state,
+                event=event,
+                submission_code=code,
+                field_name=field_name,
+                question_reference=question_reference,
+                raw_value=value,
+            )
+        )
+
+    if image is not None:
+        image_ref = state.client.upload_file(image)
+        submission = state.client.update_submission(event, code, {"image": image_ref})
+
+    return submission, created_answers
 
 
 def _build_submission_payload(
@@ -762,7 +863,11 @@ def submissions_show(
     print_result(state.client.get_submission(event, code, expand=expand), state.format)
 
 
-@submissions_app.command("create")
+@submissions_app.command(
+    "create",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help=_submissions_create_help_text(),
+)
 @handle_errors
 def submissions_create(
     ctx: typer.Context,
@@ -787,30 +892,169 @@ def submissions_create(
     extra: Optional[Path] = typer.Option(
         None, exists=True, help="JSON file merged into the request body"
     ),
+    image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
 ):
-    """Create a new submission (proposal)."""
+    """Create a new submission (proposal), including configured custom field answers."""
     state: State = ctx.obj
-    event = state.require_event()
-    resolved_content_locale = _effective_content_locale(state, content_locale)
-    resolved_submission_type = _effective_submission_type(state, submission_type)
-    data = _build_submission_payload(
-        event,
-        state.client,
+    configured_custom_fields = _configured_custom_fields(state.config)
+    custom_field_values = _parse_dynamic_custom_field_args(ctx.args, configured_custom_fields)
+
+    submission, created_answers = _create_submission_with_answers(
+        state,
         title=title,
+        submission_type=submission_type,
         abstract=abstract,
         description=description,
-        submission_type=resolved_submission_type,
         track=track,
         tags=tag,
         duration=duration,
-        content_locale=resolved_content_locale,
+        content_locale=content_locale,
         slot_count=slot_count,
         do_not_record=do_not_record,
         notes=notes,
         internal_notes=internal_notes,
         extra=extra,
+        image=image,
+        custom_field_values=custom_field_values,
     )
-    print_result(state.client.create_submission(event, data), state.format)
+    if created_answers:
+        if state.format == "json":
+            print_result({"submission": submission, "custom_answers": created_answers}, state.format)
+        else:
+            print_result(submission, state.format)
+            typer.echo("Custom field answers:")
+            print_result(
+                created_answers,
+                state.format,
+                columns=["id", "question", "answer", "answer_file", "submission"],
+            )
+    else:
+        print_result(submission, state.format)
+
+
+def _csv_headers_for_submission_create(config: Config) -> list[str]:
+    headers = [
+        "title",
+        "submission_type",
+        "abstract",
+        "description",
+        "track",
+        "tag",
+        "duration",
+        "content_locale",
+        "slot_count",
+        "do_not_record",
+        "notes",
+        "internal_notes",
+        "image",
+    ]
+    headers.extend(_configured_custom_fields(config).keys())
+    return headers
+
+
+@submissions_app.command("csvexport")
+@handle_errors
+def submissions_csvexport(
+    ctx: typer.Context,
+    output: Path = typer.Option(
+        Path("submissions_template.csv"),
+        "--output",
+        "-o",
+        help="Path to write CSV template",
+    ),
+):
+    """Export a CSV template matching accepted `submissions create`/`csvimport` columns."""
+    state: State = ctx.obj
+    headers = _csv_headers_for_submission_create(state.config)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=headers)
+        writer.writeheader()
+    typer.echo(f"Wrote CSV template to {output}")
+
+
+@submissions_app.command("csvimport")
+@handle_errors
+def submissions_csvimport(
+    ctx: typer.Context,
+    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input CSV file"),
+):
+    """Import submissions from CSV using the same column names as `submissions create`."""
+    state: State = ctx.obj
+    configured_custom_fields = _configured_custom_fields(state.config)
+    headers = _csv_headers_for_submission_create(state.config)
+
+    imported: list[dict] = []
+    with file.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if reader.fieldnames is None:
+            raise typer.BadParameter("CSV file has no header row.")
+
+        known_header_set = set(headers)
+        unknown_headers = [name for name in reader.fieldnames if name not in known_header_set]
+        if unknown_headers:
+            raise typer.BadParameter(
+                "Unknown CSV column(s): " + ", ".join(unknown_headers)
+            )
+
+        for row_index, row in enumerate(reader, start=2):
+            title = (row.get("title") or "").strip()
+            if not title:
+                # Skip empty lines quietly.
+                if not any((value or "").strip() for value in row.values()):
+                    continue
+                raise typer.BadParameter(f"Row {row_index}: missing required column 'title'.")
+
+            custom_field_values: dict[str, str] = {}
+            for field_name in configured_custom_fields:
+                raw_value = (row.get(field_name) or "").strip()
+                if raw_value:
+                    custom_field_values[field_name] = raw_value
+
+            image_value = (row.get("image") or "").strip()
+            image_path = None
+            if image_value:
+                image_path = Path(image_value).expanduser()
+                if not image_path.is_absolute():
+                    image_path = (file.parent / image_path).resolve()
+                if not image_path.is_file():
+                    raise typer.BadParameter(
+                        f"Row {row_index}: image path does not exist: {image_path}"
+                    )
+
+            try:
+                submission, created_answers = _create_submission_with_answers(
+                    state,
+                    title=title,
+                    submission_type=(row.get("submission_type") or None),
+                    abstract=(row.get("abstract") or None),
+                    description=(row.get("description") or None),
+                    track=(row.get("track") or None),
+                    tags=_parse_optional_tags(row.get("tag") or ""),
+                    duration=_parse_optional_int(row.get("duration") or "", "duration"),
+                    content_locale=(row.get("content_locale") or None),
+                    slot_count=_parse_optional_int(row.get("slot_count") or "", "slot_count"),
+                    do_not_record=_parse_optional_bool(
+                        row.get("do_not_record") or "", "do_not_record"
+                    ),
+                    notes=(row.get("notes") or None),
+                    internal_notes=(row.get("internal_notes") or None),
+                    extra=None,
+                    image=image_path,
+                    custom_field_values=custom_field_values,
+                )
+            except typer.BadParameter as exc:
+                raise typer.BadParameter(f"Row {row_index}: {exc}") from exc
+
+            imported.append(
+                {
+                    "code": submission.get("code"),
+                    "title": title,
+                    "custom_answers": len(created_answers),
+                }
+            )
+
+    print_result(imported, state.format, columns=["code", "title", "custom_answers"])
 
 
 @submissions_app.command("update")
@@ -977,101 +1221,6 @@ def resources_remove(ctx: typer.Context, code: str, resource_id: int):
     event = state.require_event()
     state.client.remove_resource(event, code, resource_id)
     typer.echo(f"Removed resource {resource_id} from {code}.")
-
-
-# -- top-level convenience command ---------------------------------------------------------
-
-
-@app.command(
-    "submit-proposal",
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
-    help=_submit_proposal_help_text(),
-)
-@handle_errors
-def submit_proposal(
-    ctx: typer.Context,
-    title: str = typer.Option(..., help="Proposal title"),
-    submission_type: Optional[str] = typer.Option(
-        None,
-        "--submission-type",
-        help="Submission type name or ID (defaults to configured submission_type or 1)",
-    ),
-    abstract: Optional[str] = typer.Option(None, help="Short abstract"),
-    description: Optional[str] = typer.Option(None, help="Full description"),
-    track: Optional[str] = typer.Option(None, help="Track name or ID"),
-    tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag name or ID (repeatable)"),
-    duration: Optional[int] = typer.Option(None, help="Duration in minutes"),
-    content_locale: Optional[str] = typer.Option(
-        None, "--content-locale", help="Proposal locale (defaults to configured content_locale or en_gb)"
-    ),
-    slot_count: Optional[int] = typer.Option(None, "--slot-count"),
-    do_not_record: Optional[bool] = typer.Option(None, "--do-not-record/--record"),
-    notes: Optional[str] = typer.Option(None, help="Notes to the organizers"),
-    internal_notes: Optional[str] = typer.Option(None, "--internal-notes"),
-    extra: Optional[Path] = typer.Option(
-        None, exists=True, help="JSON file merged into the submission body"
-    ),
-    image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
-):
-    """Create a proposal and attach files/custom field answers in one step."""
-    state: State = ctx.obj
-    event = state.require_event()
-    resolved_content_locale = _effective_content_locale(state, content_locale)
-    resolved_submission_type = _effective_submission_type(state, submission_type)
-    configured_custom_fields = _configured_custom_fields(state.config)
-    custom_field_values = _parse_dynamic_custom_field_args(ctx.args, configured_custom_fields)
-
-    data = _build_submission_payload(
-        event,
-        state.client,
-        title=title,
-        abstract=abstract,
-        description=description,
-        submission_type=resolved_submission_type,
-        track=track,
-        tags=tag,
-        duration=duration,
-        content_locale=resolved_content_locale,
-        slot_count=slot_count,
-        do_not_record=do_not_record,
-        notes=notes,
-        internal_notes=internal_notes,
-        extra=extra,
-    )
-    submission = state.client.create_submission(event, data)
-    code = submission["code"]
-    created_answers: list[dict] = []
-
-    for field_name, value in custom_field_values.items():
-        question_reference = configured_custom_fields[field_name]
-        created_answers.append(
-            _create_custom_field_answer(
-                state=state,
-                event=event,
-                submission_code=code,
-                field_name=field_name,
-                question_reference=question_reference,
-                raw_value=value,
-            )
-        )
-
-    if image is not None:
-        image_ref = state.client.upload_file(image)
-        submission = state.client.update_submission(event, code, {"image": image_ref})
-
-    if created_answers:
-        if state.format == "json":
-            print_result({"submission": submission, "custom_answers": created_answers}, state.format)
-        else:
-            print_result(submission, state.format)
-            typer.echo("Custom field answers:")
-            print_result(
-                created_answers,
-                state.format,
-                columns=["id", "question", "answer", "answer_file", "submission"],
-            )
-    else:
-        print_result(submission, state.format)
 
 
 if __name__ == "__main__":
