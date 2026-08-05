@@ -119,14 +119,6 @@ _LOOKUP_CONFIG = {
     "tag": ("list_tags", "tag"),
 }
 
-_PDF_QUESTION_KEYS = (
-    "pdf_question",
-    "pdf_question_id",
-    "output_pdf_question",
-    "output_pdf",
-)
-
-
 def _label(value: object) -> str:
     if isinstance(value, dict):
         return str(value.get("en") or next(iter(value.values()), ""))
@@ -177,7 +169,7 @@ def _resolve_question_reference(client: PretalxClient, event: str, value: str | 
 
     raise typer.BadParameter(
         f"No custom field question found matching {value!r}. "
-        "Set profiles.<name>.custom_fields.pdf_question to a valid question id or identifier."
+        "Set profiles.<name>.custom_fields.<field_name> to a valid question id or identifier."
     )
 
 
@@ -236,17 +228,6 @@ def _effective_content_locale(state: State, value: Optional[str]) -> str:
 def _effective_submission_type(state: State, value: Optional[str]) -> str:
     """Resolve submission type input, falling back to configured/global default."""
     return value or state.config.submission_type
-
-
-def _configured_pdf_question(config: Config) -> Optional[str | int]:
-    for key in _PDF_QUESTION_KEYS:
-        value = config.custom_fields.get(key)
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        return value
-    return None
 
 
 def _configured_custom_fields(config: Config) -> dict[str, str | int]:
@@ -1030,14 +1011,6 @@ def submit_proposal(
     extra: Optional[Path] = typer.Option(
         None, exists=True, help="JSON file merged into the submission body"
     ),
-    pdf: Optional[Path] = typer.Option(
-        None, exists=True, help="Paper/slides PDF (or other document) to attach as a resource"
-    ),
-    resource_description: Optional[str] = typer.Option(
-        None,
-        "--resource-description",
-        help="Description for the attached PDF answer/resource (defaults to filename)",
-    ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
 ):
     """Create a proposal and attach files/custom field answers in one step."""
@@ -1047,20 +1020,6 @@ def submit_proposal(
     resolved_submission_type = _effective_submission_type(state, submission_type)
     configured_custom_fields = _configured_custom_fields(state.config)
     custom_field_values = _parse_dynamic_custom_field_args(ctx.args, configured_custom_fields)
-
-    pdf_question_reference = _configured_pdf_question(state.config)
-    if pdf is not None:
-        if pdf_question_reference is not None:
-            pdf_field_key = next(
-                (key for key in configured_custom_fields if _normalise_cli_field_name(key) in _PDF_QUESTION_KEYS),
-                None,
-            )
-            if pdf_field_key and pdf_field_key not in custom_field_values:
-                custom_field_values[pdf_field_key] = str(pdf.expanduser())
-        else:
-            # Backward-compatible fallback: if no configured question exists, keep
-            # using submission resources for --pdf.
-            pass
 
     data = _build_submission_payload(
         event,
@@ -1082,20 +1041,6 @@ def submit_proposal(
     submission = state.client.create_submission(event, data)
     code = submission["code"]
     created_answers: list[dict] = []
-
-    if pdf is not None and pdf_question_reference is None:
-        resource_ref = state.client.upload_file(pdf)
-        effective_resource_description = _effective_resource_description(
-            resource_description,
-            file=pdf,
-        )
-        state.client.add_resource(
-            event,
-            code,
-            resource=resource_ref,
-            description=effective_resource_description,
-            is_public=True,
-        )
 
     for field_name, value in custom_field_values.items():
         question_reference = configured_custom_fields[field_name]

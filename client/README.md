@@ -63,9 +63,9 @@ proposal creation commands.
 If not provided in environment/config, `submission_type` defaults to `1` for
 `submit-proposal` and `submissions create`.
 
-When `profiles.<name>.custom_fields.pdf_question` is set, `submit-proposal --pdf`
-stores the upload as an Answer on that custom field (via `/answers/`) instead of
-adding it as a submission resource.
+When `profiles.<name>.custom_fields.pdf_question` is set, pass
+`--pdf-question /path/to/file.pdf` to `submit-proposal` to upload the file as an
+Answer on that custom field (via `/answers/`).
 
 Any key under `profiles.<name>.custom_fields` becomes a dynamic
 `submit-proposal` flag by replacing `_` with `-`, e.g.:
@@ -75,7 +75,7 @@ uv run pretalx-client submit-proposal \
   --title "Test" \
   --figshare-id 12345 \
   --self-assessment 0.5 \
-  --pdf paper.pdf
+  --pdf-question paper.pdf
 ```
 
 `uv run pretalx-client submit-proposal --help` shows the currently configured
@@ -114,7 +114,7 @@ uv run pretalx-client tracks list --event myevent
 uv run pretalx-client tags list --event myevent
 ```
 
-### Submit a proposal with its PDF in one step
+### Submit a proposal with custom field answers in one step
 
 ```bash
 uv run pretalx-client submit-proposal \
@@ -125,13 +125,13 @@ uv run pretalx-client submit-proposal \
   --abstract "A short abstract." \
   --description "A longer description." \
   --tag "backend" --tag "python" \
-  --pdf paper.pdf --resource-description "Full paper"
+  --figshare-id 12345 \
+  --self-assessment 0.5 \
+  --pdf-question paper.pdf
 ```
 
-This creates the submission, then uploads `paper.pdf` either as:
-
-1. an Answer to the configured custom field (`profiles.<name>.custom_fields.pdf_question`), or
-2. a submission resource (fallback, if no PDF custom field is configured).
+This creates the submission and then posts answers to configured custom fields,
+including file uploads for fields such as `pdf_question`.
 
 ### Manage submissions individually
 
@@ -156,7 +156,9 @@ uv run pretalx-client submissions list --event myevent --format json
 pretalx's `/api/upload/` endpoint expects the raw file bytes as the request body,
 with `Content-Type` and `Content-Disposition: attachment; filename="..."` headers —
 not a `multipart/form-data` upload. This client implements that directly; you don't
-need to think about it when using `--pdf`/`--file`/`--avatar`/`--image` options.
+need to think about it when using file-based options like
+`submissions resources add --file`, `speakers update --avatar`, `submit-proposal --image`,
+or dynamic file custom-field flags (e.g. `--pdf-question`).
 
 ## Scope
 
