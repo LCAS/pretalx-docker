@@ -22,11 +22,13 @@ DEFAULT_CONFIG_TEMPLATE = """# Copy this file to config.toml and fill in your va
 url = \"https://pretalx.example.org\"
 token = \"your-api-token\"
 event = \"myevent\"
+content_locale = \"en_gb\"
 
 [profiles.ref11]
 url = \"https://ref11dev.zrok.lcas.group\"
 token = \"your-api-token\"
 event = \"ref11\"
+content_locale = \"en_gb\"
 """
 
 app = typer.Typer(
@@ -127,6 +129,73 @@ def _resolve_reference(client: PretalxClient, event: str, kind: str, value: str)
     return matches[0]["id"]
 
 
+def _normalise_locale(value: str) -> str:
+    return value.strip().replace("_", "-").lower()
+
+
+def _resolve_content_locale(client: PretalxClient, event: str, value: str) -> str:
+    """Resolve a content locale against the event's configured locales.
+
+    Accepts exact matches (case-insensitive, '_' or '-' separators) and short
+    language prefixes like ``en`` when they map to exactly one configured
+    locale (e.g. ``en-gb``).
+    """
+    normalised_input = _normalise_locale(value)
+    event_data = client.get_event(event)
+    available_locales = event_data.get("content_locales") or event_data.get("locales") or []
+
+    if not available_locales:
+        return normalised_input
+
+    normalised_available = [
+        (_normalise_locale(locale), str(locale)) for locale in available_locales
+    ]
+
+    # Exact match against any configured locale.
+    for normalised_locale, raw_locale in normalised_available:
+        if normalised_input == normalised_locale:
+            return raw_locale
+
+    # Short language alias: e.g. 'en' -> 'en-gb' if unique.
+    prefix_matches = [
+        raw_locale
+        for normalised_locale, raw_locale in normalised_available
+        if normalised_locale.startswith(f"{normalised_input}-")
+    ]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        raise typer.BadParameter(
+            "Ambiguous content locale "
+            f"{value!r}. Matching event locales: {', '.join(prefix_matches)}"
+        )
+
+    raise typer.BadParameter(
+        "Invalid content locale "
+        f"{value!r}. Valid choices for event '{event}': {', '.join(map(str, available_locales))}"
+    )
+
+
+def _effective_content_locale(state: State, value: Optional[str]) -> str:
+    """Resolve content locale input, falling back to configured/global default."""
+    return value or state.config.content_locale
+
+
+def _effective_resource_description(
+    description: Optional[str],
+    file: Optional[Path] = None,
+    link: Optional[str] = None,
+) -> str:
+    """Ensure resource descriptions are never blank for stricter API configs."""
+    if description is not None and description.strip():
+        return description.strip()
+    if file is not None:
+        return file.name
+    if link:
+        return link
+    return "Attachment"
+
+
 def _build_submission_payload(
     event: str,
     client: PretalxClient,
@@ -162,7 +231,7 @@ def _build_submission_payload(
     if duration is not None:
         data["duration"] = duration
     if content_locale is not None:
-        data["content_locale"] = content_locale
+        data["content_locale"] = _resolve_content_locale(client, event, content_locale)
     if slot_count is not None:
         data["slot_count"] = slot_count
     if do_not_record is not None:
@@ -224,6 +293,7 @@ def config_show(ctx: typer.Context):
             "token": redacted_token,
             "event": config.event,
             "api_version": config.api_version,
+            "content_locale": config.content_locale,
             "profile": config.profile,
             "config_file": str(config.config_file),
         },
@@ -470,7 +540,9 @@ def submissions_create(
     track: Optional[str] = typer.Option(None, help="Track name or ID"),
     tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag name or ID (repeatable)"),
     duration: Optional[int] = typer.Option(None, help="Duration in minutes"),
-    content_locale: Optional[str] = typer.Option(None, "--content-locale"),
+    content_locale: Optional[str] = typer.Option(
+        None, "--content-locale", help="Proposal locale (defaults to configured content_locale or en_gb)"
+    ),
     slot_count: Optional[int] = typer.Option(None, "--slot-count"),
     do_not_record: Optional[bool] = typer.Option(None, "--do-not-record/--record"),
     notes: Optional[str] = typer.Option(None, help="Notes to the organizers"),
@@ -482,6 +554,7 @@ def submissions_create(
     """Create a new submission (proposal)."""
     state: State = ctx.obj
     event = state.require_event()
+    resolved_content_locale = _effective_content_locale(state, content_locale)
     data = _build_submission_payload(
         event,
         state.client,
@@ -492,7 +565,7 @@ def submissions_create(
         track=track,
         tags=tag,
         duration=duration,
-        content_locale=content_locale,
+        content_locale=resolved_content_locale,
         slot_count=slot_count,
         do_not_record=do_not_record,
         notes=notes,
@@ -633,7 +706,10 @@ def resources_add(
         None, exists=True, help="File to upload and attach (e.g. a PDF)"
     ),
     link: Optional[str] = typer.Option(None, help="External URL instead of an uploaded file"),
-    description: str = typer.Option("", help="Description of the resource"),
+    description: Optional[str] = typer.Option(
+        None,
+        help="Description of the resource (defaults to filename/link)",
+    ),
     public: bool = typer.Option(True, "--public/--private", help="Whether the resource is public"),
 ):
     """Attach a file (e.g. a proposal's PDF) or link as a resource on a submission."""
@@ -643,8 +719,14 @@ def resources_add(
         typer.secho("Provide either --file or --link.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     resource_ref = state.client.upload_file(file) if file else None
+    effective_description = _effective_resource_description(description, file=file, link=link)
     result = state.client.add_resource(
-        event, code, resource=resource_ref, link=link, description=description, is_public=public
+        event,
+        code,
+        resource=resource_ref,
+        link=link,
+        description=effective_description,
+        is_public=public,
     )
     print_result(result, state.format)
 
@@ -673,7 +755,9 @@ def submit_proposal(
     track: Optional[str] = typer.Option(None, help="Track name or ID"),
     tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag name or ID (repeatable)"),
     duration: Optional[int] = typer.Option(None, help="Duration in minutes"),
-    content_locale: Optional[str] = typer.Option(None, "--content-locale"),
+    content_locale: Optional[str] = typer.Option(
+        None, "--content-locale", help="Proposal locale (defaults to configured content_locale or en_gb)"
+    ),
     slot_count: Optional[int] = typer.Option(None, "--slot-count"),
     do_not_record: Optional[bool] = typer.Option(None, "--do-not-record/--record"),
     notes: Optional[str] = typer.Option(None, help="Notes to the organizers"),
@@ -684,14 +768,17 @@ def submit_proposal(
     pdf: Optional[Path] = typer.Option(
         None, exists=True, help="Paper/slides PDF (or other document) to attach as a resource"
     ),
-    resource_description: str = typer.Option(
-        "", "--resource-description", help="Description for the attached PDF/document"
+    resource_description: Optional[str] = typer.Option(
+        None,
+        "--resource-description",
+        help="Description for the attached PDF/document (defaults to filename)",
     ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
 ):
     """Create a proposal and, in one step, attach its PDF and/or card image."""
     state: State = ctx.obj
     event = state.require_event()
+    resolved_content_locale = _effective_content_locale(state, content_locale)
     data = _build_submission_payload(
         event,
         state.client,
@@ -702,7 +789,7 @@ def submit_proposal(
         track=track,
         tags=tag,
         duration=duration,
-        content_locale=content_locale,
+        content_locale=resolved_content_locale,
         slot_count=slot_count,
         do_not_record=do_not_record,
         notes=notes,
@@ -714,8 +801,16 @@ def submit_proposal(
 
     if pdf is not None:
         resource_ref = state.client.upload_file(pdf)
+        effective_resource_description = _effective_resource_description(
+            resource_description,
+            file=pdf,
+        )
         submission = state.client.add_resource(
-            event, code, resource=resource_ref, description=resource_description, is_public=True
+            event,
+            code,
+            resource=resource_ref,
+            description=effective_resource_description,
+            is_public=True,
         )
     if image is not None:
         image_ref = state.client.upload_file(image)

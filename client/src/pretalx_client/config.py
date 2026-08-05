@@ -16,6 +16,7 @@ from pretalx_client.exceptions import ConfigError
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "pretalx-client" / "config.toml"
 DEFAULT_PROFILE = "default"
+DEFAULT_CONTENT_LOCALE = "en_gb"
 
 
 @dataclass
@@ -24,6 +25,7 @@ class Config:
     token: Optional[str] = None
     event: Optional[str] = None
     api_version: Optional[str] = None
+    content_locale: str = DEFAULT_CONTENT_LOCALE
     verify_ssl: bool = True
     profile: str = DEFAULT_PROFILE
     config_file: Path = DEFAULT_CONFIG_PATH
@@ -91,12 +93,18 @@ def load_config(
         or os.environ.get("PRETALX_API_VERSION")
         or file_values.get("api_version")
     )
+    resolved_content_locale = (
+        os.environ.get("PRETALX_CONTENT_LOCALE")
+        or file_values.get("content_locale")
+        or DEFAULT_CONTENT_LOCALE
+    )
 
     return Config(
         url=resolved_url.rstrip("/") if resolved_url else None,
         token=resolved_token,
         event=resolved_event,
         api_version=resolved_api_version,
+        content_locale=str(resolved_content_locale),
         verify_ssl=verify_ssl,
         profile=resolved_profile,
         config_file=resolved_config_file,

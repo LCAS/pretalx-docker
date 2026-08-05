@@ -35,12 +35,17 @@ event slug. These are resolved with the following precedence:
    url = "https://pretalx.example.org"
    token = "your-api-token"
    event = "myevent"
+  content_locale = "en_gb"
 
    [profiles.ref11]
    url = "https://ref11dev.zrok.lcas.group"
    token = "your-api-token"
    event = "ref11"
+  content_locale = "en_gb"
    ```
+
+If not provided in environment/config, `content_locale` defaults to `en_gb` for
+proposal creation commands.
 
 Check what would be used with:
 

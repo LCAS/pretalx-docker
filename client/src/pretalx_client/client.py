@@ -237,10 +237,12 @@ class PretalxClient:
         code: str,
         resource: Optional[str] = None,
         link: Optional[str] = None,
-        description: str = "",
+        description: Optional[str] = None,
         is_public: bool = True,
     ) -> dict:
-        data: dict[str, Any] = {"description": description, "is_public": is_public}
+        data: dict[str, Any] = {"is_public": is_public}
+        if description is not None:
+            data["description"] = description
         if resource:
             data["resource"] = resource
         if link:
