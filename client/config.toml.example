@@ -7,16 +7,22 @@ url = "https://pretalx.example.org"
 token = "your-api-token"
 event = "myevent"
 content_locale = "en_gb"
+submission_type = "1"
 
 [profiles.default.custom_fields]
 # Question id or identifier for the submission custom file field.
 pdf_question = 1
+figshare_id = 124
+self_assessment = 125
 
 [profiles.ref11]
 url = "https://ref11dev.zrok.lcas.group"
 token = "your-api-token"
 event = "ref11"
 content_locale = "en_gb"
+submission_type = "1"
 
 [profiles.ref11.custom_fields]
 pdf_question = 1
+figshare_id = 124
+self_assessment = 125

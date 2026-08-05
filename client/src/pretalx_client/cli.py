@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import typer
 
@@ -22,20 +22,26 @@ DEFAULT_CONFIG_TEMPLATE = """# Copy this file to config.toml and fill in your va
 url = \"https://pretalx.example.org\"
 token = \"your-api-token\"
 event = \"myevent\"
+submission_type = \"1\"
 content_locale = \"en_gb\"
 
 [profiles.default.custom_fields]
 # Question id or identifier for the submission custom file field.
 pdf_question = 123
+figshare_id = 124
+self_assessment = 125
 
 [profiles.ref11]
 url = \"https://ref11dev.zrok.lcas.group\"
 token = \"your-api-token\"
 event = \"ref11\"
+submission_type = \"1\"
 content_locale = \"en_gb\"
 
 [profiles.ref11.custom_fields]
 pdf_question = 123
+figshare_id = 124
+self_assessment = 125
 """
 
 app = typer.Typer(
@@ -227,6 +233,11 @@ def _effective_content_locale(state: State, value: Optional[str]) -> str:
     return value or state.config.content_locale
 
 
+def _effective_submission_type(state: State, value: Optional[str]) -> str:
+    """Resolve submission type input, falling back to configured/global default."""
+    return value or state.config.submission_type
+
+
 def _configured_pdf_question(config: Config) -> Optional[str | int]:
     for key in _PDF_QUESTION_KEYS:
         value = config.custom_fields.get(key)
@@ -236,6 +247,166 @@ def _configured_pdf_question(config: Config) -> Optional[str | int]:
             continue
         return value
     return None
+
+
+def _configured_custom_fields(config: Config) -> dict[str, str | int]:
+    configured: dict[str, str | int] = {}
+    for key, value in config.custom_fields.items():
+        if not isinstance(key, str) or not key.strip():
+            continue
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        configured[key.strip()] = value
+    return configured
+
+
+def _normalise_cli_field_name(name: str) -> str:
+    return name.strip().lstrip("-").replace("-", "_")
+
+
+def _parse_dynamic_custom_field_args(
+    extra_args: list[str],
+    configured_fields: dict[str, str | int],
+) -> dict[str, str]:
+    """Parse unknown submit-proposal args into configured custom field values.
+
+    Accepts both --field-name value and --field_name=value styles, where the
+    field name is derived from profiles.<name>.custom_fields keys.
+    """
+    if not extra_args:
+        return {}
+
+    allowed_names = {_normalise_cli_field_name(name): name for name in configured_fields}
+    parsed: dict[str, str] = {}
+    unknown: list[str] = []
+
+    i = 0
+    while i < len(extra_args):
+        token = extra_args[i]
+        if not token.startswith("--"):
+            unknown.append(token)
+            i += 1
+            continue
+
+        option = token[2:]
+        if "=" in option:
+            raw_name, raw_value = option.split("=", 1)
+            i += 1
+        else:
+            raw_name = option
+            if i + 1 >= len(extra_args):
+                raise typer.BadParameter(f"Missing value for dynamic option '{token}'.")
+            raw_value = extra_args[i + 1]
+            i += 2
+
+        normalised = _normalise_cli_field_name(raw_name)
+        config_key = allowed_names.get(normalised)
+        if not config_key:
+            unknown.append(f"--{raw_name}")
+            continue
+        parsed[config_key] = raw_value
+
+    if unknown:
+        available = ", ".join(f"--{name.replace('_', '-')}" for name in configured_fields)
+        raise typer.BadParameter(
+            "Unknown dynamic option(s): "
+            + ", ".join(unknown)
+            + (f". Available configured custom fields: {available}" if available else "")
+        )
+
+    return parsed
+
+
+def _resolve_choice_option_ids(question: dict, raw_value: str, multiple: bool) -> list[int]:
+    options = question.get("options") or []
+    if not isinstance(options, list) or not options:
+        raise typer.BadParameter(
+            f"Question {question.get('id')} does not expose selectable options."
+        )
+
+    wanted_values = [raw_value] if not multiple else [part.strip() for part in raw_value.split(",") if part.strip()]
+    if multiple and not wanted_values:
+        raise typer.BadParameter("Provide at least one option for multiple-choice custom fields.")
+
+    resolved: list[int] = []
+    for wanted in wanted_values:
+        match = None
+        wanted_lower = wanted.lower()
+        for option in options:
+            option_id = str(option.get("id", ""))
+            option_identifier = str(option.get("identifier") or "").lower()
+            option_label = _label(option.get("answer")).lower()
+            if wanted == option_id or wanted_lower == option_identifier or wanted_lower == option_label:
+                match = option
+                break
+        if not match:
+            rendered_options = ", ".join(
+                f"{opt.get('id')}:{opt.get('identifier') or _label(opt.get('answer'))}" for opt in options
+            )
+            raise typer.BadParameter(
+                f"Invalid option {wanted!r} for question {question.get('id')}. "
+                f"Valid options: {rendered_options}"
+            )
+        resolved.append(int(match["id"]))
+
+    return resolved
+
+
+def _create_custom_field_answer(
+    state: State,
+    event: str,
+    submission_code: str,
+    field_name: str,
+    question_reference: str | int,
+    raw_value: str,
+) -> dict:
+    question_id = _resolve_question_reference(state.client, event, question_reference)
+    question = state.client.get_question(event, question_id, expand_options=True)
+    variant = str(question.get("variant") or "").lower()
+
+    if variant == "file":
+        file_path = Path(raw_value).expanduser()
+        if not file_path.is_file():
+            raise typer.BadParameter(
+                f"Custom field '{field_name}' expects a file path, but '{raw_value}' does not exist."
+            )
+        file_ref = state.client.upload_file(file_path)
+        return state.client.create_answer(
+            event=event,
+            question=question_id,
+            submission=submission_code,
+            answer=_effective_resource_description(None, file=file_path),
+            answer_file=file_ref,
+        )
+
+    if variant == "choices":
+        option_ids = _resolve_choice_option_ids(question, raw_value, multiple=False)
+        return state.client.create_answer(
+            event=event,
+            question=question_id,
+            submission=submission_code,
+            answer=raw_value,
+            options=option_ids,
+        )
+
+    if variant == "multiple_choice":
+        option_ids = _resolve_choice_option_ids(question, raw_value, multiple=True)
+        return state.client.create_answer(
+            event=event,
+            question=question_id,
+            submission=submission_code,
+            answer=raw_value,
+            options=option_ids,
+        )
+
+    return state.client.create_answer(
+        event=event,
+        question=question_id,
+        submission=submission_code,
+        answer=raw_value,
+    )
 
 
 def _effective_resource_description(
@@ -251,6 +422,28 @@ def _effective_resource_description(
     if link:
         return link
     return "Attachment"
+
+
+def _submit_proposal_help_text() -> str:
+    """Build command help text including currently configured dynamic flags."""
+    base = "Create a proposal and attach files/custom field answers in one step."
+    try:
+        config = load_config()
+        configured_fields = _configured_custom_fields(config)
+    except Exception:
+        configured_fields = {}
+
+    if not configured_fields:
+        return base
+
+    dynamic_flags = ", ".join(
+        f"--{name.replace('_', '-')}" for name in configured_fields
+    )
+    return (
+        base
+        + "\n\nConfigured dynamic custom-field flags from the active profile: "
+        + dynamic_flags
+    )
 
 
 def _build_submission_payload(
@@ -350,6 +543,7 @@ def config_show(ctx: typer.Context):
             "token": redacted_token,
             "event": config.event,
             "api_version": config.api_version,
+            "submission_type": config.submission_type,
             "content_locale": config.content_locale,
             "custom_fields": config.custom_fields,
             "profile": config.profile,
@@ -592,7 +786,11 @@ def submissions_show(
 def submissions_create(
     ctx: typer.Context,
     title: str = typer.Option(..., help="Proposal title"),
-    submission_type: str = typer.Option(..., "--submission-type", help="Submission type name or ID"),
+    submission_type: Optional[str] = typer.Option(
+        None,
+        "--submission-type",
+        help="Submission type name or ID (defaults to configured submission_type or 1)",
+    ),
     abstract: Optional[str] = typer.Option(None, help="Short abstract"),
     description: Optional[str] = typer.Option(None, help="Full description"),
     track: Optional[str] = typer.Option(None, help="Track name or ID"),
@@ -613,13 +811,14 @@ def submissions_create(
     state: State = ctx.obj
     event = state.require_event()
     resolved_content_locale = _effective_content_locale(state, content_locale)
+    resolved_submission_type = _effective_submission_type(state, submission_type)
     data = _build_submission_payload(
         event,
         state.client,
         title=title,
         abstract=abstract,
         description=description,
-        submission_type=submission_type,
+        submission_type=resolved_submission_type,
         track=track,
         tags=tag,
         duration=duration,
@@ -802,12 +1001,20 @@ def resources_remove(ctx: typer.Context, code: str, resource_id: int):
 # -- top-level convenience command ---------------------------------------------------------
 
 
-@app.command("submit-proposal")
+@app.command(
+    "submit-proposal",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help=_submit_proposal_help_text(),
+)
 @handle_errors
 def submit_proposal(
     ctx: typer.Context,
     title: str = typer.Option(..., help="Proposal title"),
-    submission_type: str = typer.Option(..., "--submission-type", help="Submission type name or ID"),
+    submission_type: Optional[str] = typer.Option(
+        None,
+        "--submission-type",
+        help="Submission type name or ID (defaults to configured submission_type or 1)",
+    ),
     abstract: Optional[str] = typer.Option(None, help="Short abstract"),
     description: Optional[str] = typer.Option(None, help="Full description"),
     track: Optional[str] = typer.Option(None, help="Track name or ID"),
@@ -833,17 +1040,35 @@ def submit_proposal(
     ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
 ):
-    """Create a proposal and, in one step, attach its PDF and/or card image."""
+    """Create a proposal and attach files/custom field answers in one step."""
     state: State = ctx.obj
     event = state.require_event()
     resolved_content_locale = _effective_content_locale(state, content_locale)
+    resolved_submission_type = _effective_submission_type(state, submission_type)
+    configured_custom_fields = _configured_custom_fields(state.config)
+    custom_field_values = _parse_dynamic_custom_field_args(ctx.args, configured_custom_fields)
+
+    pdf_question_reference = _configured_pdf_question(state.config)
+    if pdf is not None:
+        if pdf_question_reference is not None:
+            pdf_field_key = next(
+                (key for key in configured_custom_fields if _normalise_cli_field_name(key) in _PDF_QUESTION_KEYS),
+                None,
+            )
+            if pdf_field_key and pdf_field_key not in custom_field_values:
+                custom_field_values[pdf_field_key] = str(pdf.expanduser())
+        else:
+            # Backward-compatible fallback: if no configured question exists, keep
+            # using submission resources for --pdf.
+            pass
+
     data = _build_submission_payload(
         event,
         state.client,
         title=title,
         abstract=abstract,
         description=description,
-        submission_type=submission_type,
+        submission_type=resolved_submission_type,
         track=track,
         tags=tag,
         duration=duration,
@@ -856,40 +1081,52 @@ def submit_proposal(
     )
     submission = state.client.create_submission(event, data)
     code = submission["code"]
+    created_answers: list[dict] = []
 
-    if pdf is not None:
+    if pdf is not None and pdf_question_reference is None:
         resource_ref = state.client.upload_file(pdf)
         effective_resource_description = _effective_resource_description(
             resource_description,
             file=pdf,
         )
-        pdf_question_reference = _configured_pdf_question(state.config)
-        if pdf_question_reference is not None:
-            question_id = _resolve_question_reference(
-                state.client,
-                event,
-                str(pdf_question_reference),
-            )
-            submission = state.client.create_answer(
+        state.client.add_resource(
+            event,
+            code,
+            resource=resource_ref,
+            description=effective_resource_description,
+            is_public=True,
+        )
+
+    for field_name, value in custom_field_values.items():
+        question_reference = configured_custom_fields[field_name]
+        created_answers.append(
+            _create_custom_field_answer(
+                state=state,
                 event=event,
-                question=question_id,
-                submission=code,
-                answer=effective_resource_description,
-                answer_file=resource_ref,
+                submission_code=code,
+                field_name=field_name,
+                question_reference=question_reference,
+                raw_value=value,
             )
-        else:
-            submission = state.client.add_resource(
-                event,
-                code,
-                resource=resource_ref,
-                description=effective_resource_description,
-                is_public=True,
-            )
+        )
+
     if image is not None:
         image_ref = state.client.upload_file(image)
         submission = state.client.update_submission(event, code, {"image": image_ref})
 
-    print_result(submission, state.format)
+    if created_answers:
+        if state.format == "json":
+            print_result({"submission": submission, "custom_answers": created_answers}, state.format)
+        else:
+            print_result(submission, state.format)
+            typer.echo("Custom field answers:")
+            print_result(
+                created_answers,
+                state.format,
+                columns=["id", "question", "answer", "answer_file", "submission"],
+            )
+    else:
+        print_result(submission, state.format)
 
 
 if __name__ == "__main__":

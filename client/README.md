@@ -35,28 +35,51 @@ event slug. These are resolved with the following precedence:
    url = "https://pretalx.example.org"
    token = "your-api-token"
    event = "myevent"
-  content_locale = "en_gb"
+   submission_type = "1"
+   content_locale = "en_gb"
 
-  [profiles.default.custom_fields]
-  # Question id or identifier for the submission custom file field.
-  pdf_question = 123
+   [profiles.default.custom_fields]
+   # Question id or identifier for the submission custom file field.
+   pdf_question = 123
+   figshare_id = 124
+   self_assessment = 125
 
    [profiles.ref11]
    url = "https://ref11dev.zrok.lcas.group"
    token = "your-api-token"
    event = "ref11"
-  content_locale = "en_gb"
+   submission_type = "1"
+   content_locale = "en_gb"
 
-  [profiles.ref11.custom_fields]
-  pdf_question = 123
+   [profiles.ref11.custom_fields]
+   pdf_question = 123
+   figshare_id = 124
+   self_assessment = 125
    ```
 
 If not provided in environment/config, `content_locale` defaults to `en_gb` for
 proposal creation commands.
 
+If not provided in environment/config, `submission_type` defaults to `1` for
+`submit-proposal` and `submissions create`.
+
 When `profiles.<name>.custom_fields.pdf_question` is set, `submit-proposal --pdf`
 stores the upload as an Answer on that custom field (via `/answers/`) instead of
 adding it as a submission resource.
+
+Any key under `profiles.<name>.custom_fields` becomes a dynamic
+`submit-proposal` flag by replacing `_` with `-`, e.g.:
+
+```bash
+uv run pretalx-client submit-proposal \
+  --title "Test" \
+  --figshare-id 12345 \
+  --self-assessment 0.5 \
+  --pdf paper.pdf
+```
+
+`uv run pretalx-client submit-proposal --help` shows the currently configured
+dynamic flags from the active profile in the command description.
 
 Check what would be used with:
 
@@ -105,7 +128,10 @@ uv run pretalx-client submit-proposal \
   --pdf paper.pdf --resource-description "Full paper"
 ```
 
-This creates the submission, then uploads `paper.pdf` and attaches it as a resource.
+This creates the submission, then uploads `paper.pdf` either as:
+
+1. an Answer to the configured custom field (`profiles.<name>.custom_fields.pdf_question`), or
+2. a submission resource (fallback, if no PDF custom field is configured).
 
 ### Manage submissions individually
 

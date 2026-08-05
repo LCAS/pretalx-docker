@@ -17,6 +17,7 @@ from pretalx_client.exceptions import ConfigError
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "pretalx-client" / "config.toml"
 DEFAULT_PROFILE = "default"
 DEFAULT_CONTENT_LOCALE = "en_gb"
+DEFAULT_SUBMISSION_TYPE = "1"
 
 
 @dataclass
@@ -25,6 +26,7 @@ class Config:
     token: Optional[str] = None
     event: Optional[str] = None
     api_version: Optional[str] = None
+    submission_type: str = DEFAULT_SUBMISSION_TYPE
     content_locale: str = DEFAULT_CONTENT_LOCALE
     custom_fields: dict[str, str | int] = field(default_factory=dict)
     verify_ssl: bool = True
@@ -99,6 +101,11 @@ def load_config(
         or file_values.get("content_locale")
         or DEFAULT_CONTENT_LOCALE
     )
+    resolved_submission_type = (
+        os.environ.get("PRETALX_SUBMISSION_TYPE")
+        or file_values.get("submission_type")
+        or DEFAULT_SUBMISSION_TYPE
+    )
     profile_custom_fields = file_values.get("custom_fields")
     resolved_custom_fields: dict[str, str | int] = (
         profile_custom_fields if isinstance(profile_custom_fields, dict) else {}
@@ -109,6 +116,7 @@ def load_config(
         token=resolved_token,
         event=resolved_event,
         api_version=resolved_api_version,
+        submission_type=str(resolved_submission_type),
         content_locale=str(resolved_content_locale),
         custom_fields=resolved_custom_fields,
         verify_ssl=verify_ssl,
