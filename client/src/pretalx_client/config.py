@@ -52,6 +52,23 @@ def _read_profile(config_file: Path, profile: str) -> dict:
     return data.get("profiles", {}).get(profile, {})
 
 
+def _resolve_config_file(config_file: Optional[Path]) -> Path:
+    """Pick the effective config file path.
+
+    If no explicit path is provided, prefer the default user config file. When
+    that file is missing, fall back to ./config.toml from the current working
+    directory.
+    """
+    if config_file is not None:
+        return config_file
+    if DEFAULT_CONFIG_PATH.is_file():
+        return DEFAULT_CONFIG_PATH
+    cwd_config_path = Path.cwd() / "config.toml"
+    if cwd_config_path.is_file():
+        return cwd_config_path
+    return DEFAULT_CONFIG_PATH
+
+
 def load_config(
     url: Optional[str] = None,
     token: Optional[str] = None,
@@ -62,7 +79,7 @@ def load_config(
     verify_ssl: bool = True,
 ) -> Config:
     """Resolve configuration with precedence: CLI flag > env var > TOML profile."""
-    resolved_config_file = config_file or DEFAULT_CONFIG_PATH
+    resolved_config_file = _resolve_config_file(config_file)
     resolved_profile = profile or os.environ.get("PRETALX_PROFILE") or DEFAULT_PROFILE
     file_values = _read_profile(resolved_config_file, resolved_profile)
 

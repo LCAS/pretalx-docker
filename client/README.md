@@ -25,9 +25,10 @@ event slug. These are resolved with the following precedence:
 
 1. CLI flags: `--url`, `--token`, `--event`
 2. Environment variables: `PRETALX_URL`, `PRETALX_TOKEN`, `PRETALX_EVENT`
-3. A TOML config file (default `~/.config/pretalx-client/config.toml`, override with
-   `--config-file`), using named profiles selected via `--profile`/`PRETALX_PROFILE`
-   (default profile name: `default`):
+3. A TOML config file (default `~/.config/pretalx-client/config.toml`, or if that file
+  does not exist then `./config.toml` in the current working directory; override with
+  `--config-file`), using named profiles selected via `--profile`/`PRETALX_PROFILE`
+  (default profile name: `default`):
 
    ```toml
    [profiles.default]
@@ -46,6 +47,16 @@ Check what would be used with:
 ```bash
 uv run pretalx-client config show
 ```
+
+A ready-to-edit template is available in `config.toml.example`.
+
+Create a local config from it with:
+
+```bash
+uv run pretalx-client config init
+```
+
+Use `--force` to overwrite an existing `config.toml`.
 
 ## Usage
 

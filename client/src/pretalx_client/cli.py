@@ -14,6 +14,21 @@ from pretalx_client.config import Config, load_config
 from pretalx_client.exceptions import ConfigError, PretalxAPIError
 from pretalx_client.formatting import print_result
 
+DEFAULT_CONFIG_TEMPLATE = """# Copy this file to config.toml and fill in your values.
+# The client will automatically use ./config.toml if the default
+# ~/.config/pretalx-client/config.toml does not exist.
+
+[profiles.default]
+url = \"https://pretalx.example.org\"
+token = \"your-api-token\"
+event = \"myevent\"
+
+[profiles.ref11]
+url = \"https://ref11dev.zrok.lcas.group\"
+token = \"your-api-token\"
+event = \"ref11\"
+"""
+
 app = typer.Typer(
     name="pretalx-client",
     help="Command-line client for the pretalx conference management API.",
@@ -221,6 +236,40 @@ def config_path(ctx: typer.Context):
     """Print the path of the config file that would be used."""
     state: State = ctx.obj
     typer.echo(str(state.config.config_file))
+
+
+@config_app.command("init")
+def config_init(
+    output: Path = typer.Option(
+        Path("config.toml"), "--output", "-o", help="Path to write the generated config file"
+    ),
+    example_file: Path = typer.Option(
+        Path("config.toml.example"), "--example-file", help="Template file to copy from"
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite output file if it already exists"),
+):
+    """Create a local config.toml from the example template."""
+    if output.exists() and not force:
+        typer.secho(
+            f"Refusing to overwrite existing file: {output}. Use --force to overwrite.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if example_file.is_file():
+        content = example_file.read_text(encoding="utf-8")
+    else:
+        content = DEFAULT_CONFIG_TEMPLATE
+        typer.secho(
+            f"Template file not found ({example_file}); using built-in template.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content, encoding="utf-8")
+    typer.secho(f"Wrote config template to {output}", fg=typer.colors.GREEN)
 
 
 # -- events ---------------------------------------------------------
