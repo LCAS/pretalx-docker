@@ -60,6 +60,8 @@ access_codes_app = typer.Typer(help="Look up access codes.")
 speakers_app = typer.Typer(help="Manage speakers.")
 submissions_app = typer.Typer(help="Manage submissions (proposals).")
 resources_app = typer.Typer(help="Manage a submission's attached resources (files/links).")
+users_app = typer.Typer(help="Batch-provision users (no invitation emails sent).")
+teams_app = typer.Typer(help="Manage organiser teams and reviewers.")
 
 submissions_app.add_typer(resources_app, name="resources")
 app.add_typer(config_app, name="config")
@@ -70,6 +72,8 @@ app.add_typer(tags_app, name="tags")
 app.add_typer(access_codes_app, name="access-codes")
 app.add_typer(speakers_app, name="speakers")
 app.add_typer(submissions_app, name="submissions")
+app.add_typer(users_app, name="users")
+app.add_typer(teams_app, name="teams")
 
 
 class State:
@@ -95,6 +99,13 @@ class State:
                 "No event slug configured. Use --event/-e or set PRETALX_EVENT."
             )
         return self.config.event
+
+    def require_organiser(self) -> str:
+        if not self.config.organiser:
+            raise typer.BadParameter(
+                "No organiser slug configured. Use --organiser/-o or set PRETALX_ORGANISER."
+            )
+        return self.config.organiser
 
 
 def handle_errors(func):
@@ -139,6 +150,19 @@ def _resolve_reference(client: PretalxClient, event: str, kind: str, value: str)
         raise typer.BadParameter(
             f"Multiple {kind.replace('_', ' ')}s match {value!r}; use its numeric ID instead"
         )
+    return matches[0]["id"]
+
+
+def _resolve_team_reference(client: PretalxClient, organiser: str, value: str) -> int:
+    """Resolve a team reference from a bare ID or a matching team name."""
+    if value.isdigit():
+        return int(value)
+    teams = client.list_teams(organiser, all_pages=True)
+    matches = [team for team in teams if _label(team.get("name")).lower() == value.lower()]
+    if not matches:
+        raise typer.BadParameter(f"No team found matching {value!r}")
+    if len(matches) > 1:
+        raise typer.BadParameter(f"Multiple teams match {value!r}; use its numeric ID instead")
     return matches[0]["id"]
 
 
@@ -481,6 +505,8 @@ def _create_submission_with_answers(
     extra: Optional[Path],
     image: Optional[Path],
     custom_field_values: dict[str, str],
+    speaker_email: Optional[str] = None,
+    speaker_name: Optional[str] = None,
 ) -> tuple[dict, list[dict]]:
     event = state.require_event()
     resolved_content_locale = _effective_content_locale(state, content_locale)
@@ -524,6 +550,10 @@ def _create_submission_with_answers(
     if image is not None:
         image_ref = state.client.upload_file(image)
         submission = state.client.update_submission(event, code, {"image": image_ref})
+
+    if speaker_email:
+        state.client.add_speaker_silent(event, code, email=speaker_email, name=speaker_name)
+        submission = state.client.get_submission(event, code)
 
     return submission, created_answers
 
@@ -583,6 +613,9 @@ def main(
     url: Optional[str] = typer.Option(None, "--url", "-u", help="Base URL of the pretalx instance"),
     token: Optional[str] = typer.Option(None, "--token", "-t", help="API token"),
     event: Optional[str] = typer.Option(None, "--event", "-e", help="Event slug"),
+    organiser: Optional[str] = typer.Option(
+        None, "--organiser", "-o", help="Organiser slug (for user/team commands)"
+    ),
     profile: Optional[str] = typer.Option(
         None, "--profile", "-p", help="Config profile name (default: 'default')"
     ),
@@ -602,6 +635,7 @@ def main(
         url=url,
         token=token,
         event=event,
+        organiser=organiser,
         profile=profile,
         config_file=config_file,
         api_version=api_version,
@@ -624,6 +658,7 @@ def config_show(ctx: typer.Context):
             "url": config.url,
             "token": redacted_token,
             "event": config.event,
+            "organiser": config.organiser,
             "api_version": config.api_version,
             "submission_type": config.submission_type,
             "content_locale": config.content_locale,
@@ -893,6 +928,12 @@ def submissions_create(
         None, exists=True, help="JSON file merged into the request body"
     ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
+    speaker_email: Optional[str] = typer.Option(
+        None, "--speaker-email", help="Add a speaker by email (created silently, no invitation email)"
+    ),
+    speaker_name: Optional[str] = typer.Option(
+        None, "--speaker-name", help="Speaker's name, used if the account needs to be created"
+    ),
 ):
     """Create a new submission (proposal), including configured custom field answers."""
     state: State = ctx.obj
@@ -916,6 +957,8 @@ def submissions_create(
         extra=extra,
         image=image,
         custom_field_values=custom_field_values,
+        speaker_email=speaker_email,
+        speaker_name=speaker_name,
     )
     if created_answers:
         if state.format == "json":
@@ -947,6 +990,8 @@ def _csv_headers_for_submission_create(config: Config) -> list[str]:
         "notes",
         "internal_notes",
         "image",
+        "speaker_email",
+        "speaker_name",
     ]
     headers.extend(_configured_custom_fields(config).keys())
     return headers
@@ -1147,6 +1192,8 @@ def submissions_csvimport(
                     extra=None,
                     image=image_path,
                     custom_field_values=custom_field_values,
+                    speaker_email=(row.get("speaker_email") or None),
+                    speaker_name=(row.get("speaker_name") or None),
                 )
             except typer.BadParameter as exc:
                 raise typer.BadParameter(f"Row {row_index}: {exc}") from exc
@@ -1326,6 +1373,91 @@ def resources_remove(ctx: typer.Context, code: str, resource_id: int):
     event = state.require_event()
     state.client.remove_resource(event, code, resource_id)
     typer.echo(f"Removed resource {resource_id} from {code}.")
+
+
+# -- users (batch provisioning, no invitation emails) ------------------
+
+
+@users_app.command("create")
+@handle_errors
+def users_create(
+    ctx: typer.Context,
+    email: str = typer.Option(..., help="User's email address"),
+    name: Optional[str] = typer.Option(None, help="User's display name"),
+    locale: Optional[str] = typer.Option(None, help="User's preferred locale"),
+):
+    """Get-or-create a single user by email. Never sends an invitation email."""
+    state: State = ctx.obj
+    organiser = state.require_organiser()
+    result = state.client.create_user(organiser, email=email, name=name, locale=locale)
+    print_result(result, state.format)
+
+
+@users_app.command("batch-create")
+@handle_errors
+def users_batch_create(
+    ctx: typer.Context,
+    file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input CSV file"),
+):
+    """Batch-create users from a CSV file with columns: email, name, locale.
+
+    Only 'email' is required. Existing users are matched and left untouched;
+    no invitation emails are sent (users are expected to log in via SSO)."""
+    state: State = ctx.obj
+    organiser = state.require_organiser()
+
+    known_headers = {"email", "name", "locale"}
+    created: list[dict] = []
+    with file.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if reader.fieldnames is None:
+            raise typer.BadParameter("CSV file has no header row.")
+        unknown_headers = [name for name in reader.fieldnames if name not in known_headers]
+        if unknown_headers:
+            raise typer.BadParameter("Unknown CSV column(s): " + ", ".join(unknown_headers))
+
+        for row_index, row in enumerate(reader, start=2):
+            email = (row.get("email") or "").strip()
+            if not email:
+                if not any((value or "").strip() for value in row.values()):
+                    continue
+                raise typer.BadParameter(f"Row {row_index}: missing required column 'email'.")
+            name = (row.get("name") or "").strip() or None
+            locale = (row.get("locale") or "").strip() or None
+            result = state.client.create_user(organiser, email=email, name=name, locale=locale)
+            created.append(result)
+
+    print_result(created, state.format, columns=["code", "email", "name", "created"])
+
+
+# -- teams (reviewer assignment) ------------------
+
+
+@teams_app.command("list")
+@handle_errors
+def teams_list(ctx: typer.Context):
+    """List teams for the configured organiser."""
+    state: State = ctx.obj
+    organiser = state.require_organiser()
+    teams = state.client.list_teams(organiser, all_pages=True)
+    print_result(teams, state.format, columns=["id", "name", "is_reviewer", "can_change_teams"])
+
+
+@teams_app.command("add-member")
+@handle_errors
+def teams_add_member(
+    ctx: typer.Context,
+    team: str = typer.Argument(..., help="Team ID or name"),
+    email: str = typer.Option(..., help="Email of the user to add"),
+    name: Optional[str] = typer.Option(None, help="Name, used if the user needs to be created"),
+    locale: Optional[str] = typer.Option(None, help="Locale, used if the user needs to be created"),
+):
+    """Add a user directly to a team (e.g. as a reviewer), without an invite/accept step."""
+    state: State = ctx.obj
+    organiser = state.require_organiser()
+    team_id = _resolve_team_reference(state.client, organiser, team)
+    result = state.client.add_team_member(organiser, team_id, email=email, name=name, locale=locale)
+    print_result(result, state.format)
 
 
 if __name__ == "__main__":

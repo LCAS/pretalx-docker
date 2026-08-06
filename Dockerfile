@@ -28,6 +28,7 @@ RUN pip3 install --no-cache-dir -U pip setuptools wheel && \
     pip3 install --no-cache-dir pylibmc gunicorn
 RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx-socialauth
 RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx_ref_wording
+RUN pip3 install --no-cache-dir --no-build-isolation -e /pretalx/src/plugins/pretalx_ref_extensions
 
 WORKDIR /pretalx/src
 RUN python3 -m pretalx rebuild && \

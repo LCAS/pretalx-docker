@@ -25,6 +25,7 @@ class Config:
     url: Optional[str] = None
     token: Optional[str] = None
     event: Optional[str] = None
+    organiser: Optional[str] = None
     api_version: Optional[str] = None
     submission_type: str = DEFAULT_SUBMISSION_TYPE
     content_locale: str = DEFAULT_CONTENT_LOCALE
@@ -78,6 +79,7 @@ def load_config(
     url: Optional[str] = None,
     token: Optional[str] = None,
     event: Optional[str] = None,
+    organiser: Optional[str] = None,
     profile: Optional[str] = None,
     config_file: Optional[Path] = None,
     api_version: Optional[str] = None,
@@ -91,6 +93,9 @@ def load_config(
     resolved_url = url or os.environ.get("PRETALX_URL") or file_values.get("url")
     resolved_token = token or os.environ.get("PRETALX_TOKEN") or file_values.get("token")
     resolved_event = event or os.environ.get("PRETALX_EVENT") or file_values.get("event")
+    resolved_organiser = (
+        organiser or os.environ.get("PRETALX_ORGANISER") or file_values.get("organiser")
+    )
     resolved_api_version = (
         api_version
         or os.environ.get("PRETALX_API_VERSION")
@@ -115,6 +120,7 @@ def load_config(
         url=resolved_url.rstrip("/") if resolved_url else None,
         token=resolved_token,
         event=resolved_event,
+        organiser=resolved_organiser,
         api_version=resolved_api_version,
         submission_type=str(resolved_submission_type),
         content_locale=str(resolved_content_locale),

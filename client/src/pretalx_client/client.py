@@ -185,6 +185,47 @@ class PretalxClient:
     def update_speaker(self, event: str, code: str, data: dict) -> dict:
         return self.patch(f"events/{event}/speakers/{code}/", data)
 
+    # -- organiser: users / teams (pretalx_ref_extensions plugin) ------------
+
+    def create_user(
+        self,
+        organiser: str,
+        email: str,
+        name: Optional[str] = None,
+        locale: Optional[str] = None,
+    ) -> dict:
+        """Get-or-create a user by email. Never triggers an invitation email."""
+        data: dict[str, Any] = {"email": email}
+        if name:
+            data["name"] = name
+        if locale:
+            data["locale"] = locale
+        return self.post(
+            f"organisers/{organiser}/plugins/ref-extensions/users/", json=data
+        )
+
+    def list_teams(self, organiser: str, all_pages: bool = False) -> list[dict]:
+        return self.paginated(f"organisers/{organiser}/teams/", all_pages=all_pages)
+
+    def add_team_member(
+        self,
+        organiser: str,
+        team_id: Any,
+        email: str,
+        name: Optional[str] = None,
+        locale: Optional[str] = None,
+    ) -> dict:
+        """Add a user directly to a team's members (no invite/accept step)."""
+        data: dict[str, Any] = {"email": email}
+        if name:
+            data["name"] = name
+        if locale:
+            data["locale"] = locale
+        return self.post(
+            f"organisers/{organiser}/plugins/ref-extensions/teams/{team_id}/add-member/",
+            json=data,
+        )
+
     # -- submissions ---------------------------------------------------------
 
     def list_submissions(
@@ -244,6 +285,26 @@ class PretalxClient:
         return self.post(
             f"events/{event}/submissions/{code}/remove-speaker/",
             json={"user": speaker_code},
+        )
+
+    def add_speaker_silent(
+        self,
+        event: str,
+        code: str,
+        email: str,
+        name: Optional[str] = None,
+        locale: Optional[str] = None,
+    ) -> dict:
+        """Attach a speaker by email without sending an invitation email
+        (requires the pretalx_ref_extensions plugin enabled for the event)."""
+        data: dict[str, Any] = {"email": email}
+        if name:
+            data["name"] = name
+        if locale:
+            data["locale"] = locale
+        return self.post(
+            f"events/{event}/plugins/ref-extensions/submissions/{code}/add-speaker-silent/",
+            json=data,
         )
 
     def add_resource(
