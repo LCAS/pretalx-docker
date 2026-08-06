@@ -485,6 +485,31 @@ def _parse_optional_tags(raw_value: str) -> Optional[list[str]]:
     return tags or None
 
 
+def _parse_comma_separated_values(raw_value: Optional[str]) -> list[str]:
+    if raw_value is None:
+        return []
+    return [part.strip() for part in raw_value.split(",") if part.strip()]
+
+
+def _parse_speaker_inputs(
+    speaker_email: Optional[str],
+    speaker_name: Optional[str],
+) -> list[tuple[str, Optional[str]]]:
+    emails = _parse_comma_separated_values(speaker_email)
+    if not emails:
+        return []
+
+    names = _parse_comma_separated_values(speaker_name)
+    if not names:
+        return [(email, None) for email in emails]
+    if len(names) != len(emails):
+        raise typer.BadParameter(
+            "When providing multiple speaker emails, provide matching comma-separated "
+            "speaker names (same count) or omit --speaker-name."
+        )
+    return list(zip(emails, names))
+
+
 def _create_submission_with_answers(
     state: State,
     *,
@@ -549,8 +574,11 @@ def _create_submission_with_answers(
         image_ref = state.client.upload_file(image)
         submission = state.client.update_submission(event, code, {"image": image_ref})
 
-    if speaker_email:
-        state.client.add_speaker_silent(event, code, email=speaker_email, name=speaker_name)
+    speaker_inputs = _parse_speaker_inputs(speaker_email, speaker_name)
+    for email, name in speaker_inputs:
+        state.client.add_speaker_silent(event, code, email=email, name=name)
+
+    if speaker_inputs:
         submission = state.client.get_submission(event, code)
 
     return submission, created_answers
@@ -927,10 +955,20 @@ def submissions_create(
     ),
     image: Optional[Path] = typer.Option(None, exists=True, help="Proposal card image to attach"),
     speaker_email: Optional[str] = typer.Option(
-        None, "--speaker-email", help="Add a speaker by email (created silently, no invitation email)"
+        None,
+        "--speaker-email",
+        help=(
+            "Add speaker email(s) (created silently, no invitation emails). "
+            "Use comma-separated values for multiple speakers."
+        ),
     ),
     speaker_name: Optional[str] = typer.Option(
-        None, "--speaker-name", help="Speaker's name, used if the account needs to be created"
+        None,
+        "--speaker-name",
+        help=(
+            "Speaker name(s), used if account creation is needed. "
+            "For multiple speakers, provide comma-separated names matching --speaker-email order."
+        ),
     ),
 ):
     """Create a new submission (proposal), including configured custom field answers."""

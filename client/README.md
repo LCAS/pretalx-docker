@@ -81,6 +81,9 @@ uv run pretalx-client submissions create \
   --pdf-question paper.pdf
 ```
 
+Dynamic custom-field flags are derived directly from configured keys. For
+example, `pdf_question` becomes `--pdf-question`. There are no extra aliases.
+
 `uv run pretalx-client submissions create --help` shows the currently configured
 dynamic flags from the active profile in the command description.
 
@@ -132,6 +135,8 @@ uv run pretalx-client submissions create \
   --abstract "A short abstract." \
   --description "A longer description." \
   --tag "backend" --tag "python" \
+  --speaker-email alice@example.org,bob@example.org \
+  --speaker-name "Alice Example,Bob Example" \
   --figshare-id 12345 \
   --self-assessment 0.5 \
   --pdf-question paper.pdf
@@ -139,6 +144,10 @@ uv run pretalx-client submissions create \
 
 This creates the submission and then posts answers to configured custom fields,
 including file uploads for fields such as `pdf_question`.
+
+`--speaker-email` supports comma-separated values to add multiple speakers in
+one command. `--speaker-name` is optional; if provided with multiple speakers,
+it must be comma-separated with the same number of entries and matching order.
 
 ### Bulk import/export CSV
 
@@ -161,7 +170,8 @@ uv run pretalx-client submissions csvimport --file submissions_template.csv
 ```
 
 CSV headers mirror `submissions create` flags, for example:
-`title`, `submission_type`, `content_locale`, `figshare_id`, `self_assessment`, `pdf_question`.
+`title`, `submission_type`, `content_locale`, `speaker_email`, `speaker_name`,
+`figshare_id`, `self_assessment`, `pdf_question`.
 
 ### Manage submissions individually
 
