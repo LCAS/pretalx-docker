@@ -258,9 +258,6 @@ def _effective_submission_type(state: State, value: Optional[str]) -> str:
 
 
 def _configured_custom_fields(config: Config) -> dict[str, str | int]:
-    aliases = {
-        "pdf": "pdf_question",
-    }
     configured: dict[str, str | int] = {}
     for key, value in config.custom_fields.items():
         if not isinstance(key, str) or not key.strip():
@@ -269,8 +266,7 @@ def _configured_custom_fields(config: Config) -> dict[str, str | int]:
             continue
         if isinstance(value, str) and not value.strip():
             continue
-        canonical_key = aliases.get(key.strip(), key.strip())
-        configured[canonical_key] = value
+        configured[key.strip()] = value
     return configured
 
 
