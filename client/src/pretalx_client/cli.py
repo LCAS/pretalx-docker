@@ -5,8 +5,13 @@ from __future__ import annotations
 import functools
 import csv
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import unquote, urlparse
+from urllib.request import urlopen
 
 import typer
 
@@ -375,19 +380,19 @@ def _create_custom_field_answer(
     variant = str(question.get("variant") or "").lower()
 
     if variant == "file":
-        file_path = Path(raw_value).expanduser()
-        if not file_path.is_file():
-            raise typer.BadParameter(
-                f"Custom field '{field_name}' expects a file path, but '{raw_value}' does not exist."
+        file_path, description, cleanup_dir = _resolve_custom_field_file_source(field_name, raw_value)
+        try:
+            file_ref = state.client.upload_file(file_path)
+            return state.client.create_answer(
+                event=event,
+                question=question_id,
+                submission=submission_code,
+                answer=_effective_resource_description(description, file=file_path),
+                answer_file=file_ref,
             )
-        file_ref = state.client.upload_file(file_path)
-        return state.client.create_answer(
-            event=event,
-            question=question_id,
-            submission=submission_code,
-            answer=_effective_resource_description(None, file=file_path),
-            answer_file=file_ref,
-        )
+        finally:
+            if cleanup_dir is not None:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
 
     if variant == "choices":
         option_ids = _resolve_choice_option_ids(question, raw_value, multiple=False)
@@ -415,6 +420,39 @@ def _create_custom_field_answer(
         submission=submission_code,
         answer=raw_value,
     )
+
+
+def _resolve_custom_field_file_source(
+    field_name: str,
+    raw_value: str,
+) -> tuple[Path, Optional[str], Optional[Path]]:
+    """Resolve a custom field file source from a local path or http(s) URL."""
+    source = raw_value.strip()
+    lowered = source.lower()
+
+    if lowered.startswith("http://") or lowered.startswith("https://"):
+        parsed = urlparse(source)
+        filename = Path(unquote(parsed.path)).name or "downloaded-file"
+        temp_dir = Path(tempfile.mkdtemp(prefix="pretalx-upload-"))
+        download_path = temp_dir / filename
+        try:
+            with urlopen(source) as response:
+                download_path.write_bytes(response.read())
+        except (HTTPError, URLError, OSError) as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise typer.BadParameter(
+                f"Custom field '{field_name}' expects a valid file source, but URL '{raw_value}' "
+                f"could not be downloaded: {exc}"
+            ) from exc
+        return download_path, filename, temp_dir
+
+    file_path = Path(raw_value).expanduser()
+    if not file_path.is_file():
+        raise typer.BadParameter(
+            f"Custom field '{field_name}' expects a local file path or http(s) URL, "
+            f"but '{raw_value}' is not valid."
+        )
+    return file_path, None, None
 
 
 def _effective_resource_description(
