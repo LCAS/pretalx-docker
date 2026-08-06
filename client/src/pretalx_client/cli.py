@@ -1528,32 +1528,47 @@ def submissions_update(
 @handle_errors
 def submissions_delete(
     ctx: typer.Context,
-    codes: List[str] = typer.Argument(
-        ...,
+    codes: Optional[List[str]] = typer.Argument(
+        None,
         metavar="CODE...",
-        help="One or more submission codes to delete.",
+        help="One or more submission codes to delete (omit when using --all).",
+    ),
+    all_submissions: bool = typer.Option(
+        False,
+        "--all",
+        help="Delete all submissions for the configured event.",
     ),
 ):
-    """Delete one or more submissions by code."""
+    """Delete submissions by code, or delete all submissions with --all."""
     state: State = ctx.obj
     event = state.require_event()
+
+    if all_submissions and codes:
+        raise typer.BadParameter("Provide either CODEs or --all, not both.")
+
+    if all_submissions:
+        all_items = state.client.list_submissions(event, all_pages=True)
+        target_codes = [str(item.get("code") or "").strip() for item in all_items]
+        target_codes = [code for code in target_codes if code]
+    else:
+        target_codes = [raw_code.strip() for raw_code in (codes or []) if raw_code.strip()]
+
+    if not target_codes:
+        if all_submissions:
+            typer.secho("No submissions found to delete.", fg=typer.colors.YELLOW)
+            raise typer.Exit(code=0)
+        raise typer.BadParameter("Provide at least one non-empty submission code, or use --all.")
 
     results: list[dict[str, str]] = []
     had_failures = False
 
-    for raw_code in codes:
-        code = raw_code.strip()
-        if not code:
-            continue
+    for code in target_codes:
         try:
             state.client.delete_submission(event, code)
             results.append({"code": code, "status": "deleted", "error": ""})
         except PretalxAPIError as exc:
             had_failures = True
             results.append({"code": code, "status": "failed", "error": str(exc)})
-
-    if not results:
-        raise typer.BadParameter("Provide at least one non-empty submission code.")
 
     print_result(results, state.format, columns=["code", "status", "error"])
     if had_failures:

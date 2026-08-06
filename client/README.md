@@ -193,6 +193,7 @@ uv run pretalx-client submissions resources add <code> --event myevent --file pa
 uv run pretalx-client submissions show <code> --event myevent
 uv run pretalx-client submissions accept <code> --event myevent
 uv run pretalx-client submissions delete <code1> <code2> --event myevent
+uv run pretalx-client submissions delete --all --event myevent
 ```
 
 ### Output format
