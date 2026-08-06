@@ -6,6 +6,7 @@ import functools
 import csv
 import io
 import json
+import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
@@ -434,18 +435,19 @@ def _resolve_custom_field_file_source(
     if lowered.startswith("http://") or lowered.startswith("https://"):
         parsed = urlparse(source)
         filename = Path(unquote(parsed.path)).name or "downloaded-file"
-        print(f"Downloading custom field '{field_name}' file from {source} ...")
         temp_dir = Path(tempfile.mkdtemp(prefix="pretalx-upload-"))
-        download_path = temp_dir / filename
         try:
             with urlopen(source) as response:
-                download_path.write_bytes(response.read())
+                file_bytes = response.read()
         except (HTTPError, URLError, OSError) as exc:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise typer.BadParameter(
                 f"Custom field '{field_name}' expects a valid file source, but URL '{raw_value}' "
                 f"could not be downloaded: {exc}"
             ) from exc
+        filename = _normalise_download_filename_from_content(filename, file_bytes)
+        download_path = temp_dir / filename
+        download_path.write_bytes(file_bytes)
         return download_path, filename, temp_dir
 
     file_path = Path(raw_value).expanduser()
@@ -455,6 +457,39 @@ def _resolve_custom_field_file_source(
             f"but '{raw_value}' is not valid."
         )
     return file_path, None, None
+
+
+def _normalise_download_filename_from_content(filename: str, file_bytes: bytes) -> str:
+    """Add or correct filename extension using content sniffing."""
+    content_type = PretalxClient._sniff_content_type(file_bytes)
+    if not content_type:
+        return filename
+
+    extension_overrides = {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/pdf": ".pdf",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "application/zip": ".zip",
+        "application/gzip": ".gz",
+        "text/csv": ".csv",
+        "text/plain": ".txt",
+    }
+    expected_extension = extension_overrides.get(content_type) or mimetypes.guess_extension(content_type)
+    if not expected_extension:
+        return filename
+
+    path = Path(filename)
+    current_extension = path.suffix.lower()
+    if current_extension == expected_extension.lower():
+        return filename
+
+    stem = path.stem if path.suffix else path.name
+    if not stem:
+        stem = "downloaded-file"
+    return f"{stem}{expected_extension}"
 
 
 def _effective_resource_description(

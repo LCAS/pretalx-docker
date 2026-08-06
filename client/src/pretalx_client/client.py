@@ -11,8 +11,10 @@ file field (e.g. ``resource``, ``image``, ``avatar``) in a later request.
 from __future__ import annotations
 
 import mimetypes
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
+from zipfile import BadZipFile, ZipFile
 
 import httpx
 
@@ -108,15 +110,56 @@ class PretalxClient:
         response = self._http.delete(path)
         self._raise_for_error(response)
 
+    @staticmethod
+    def _sniff_content_type(file_bytes: bytes) -> Optional[str]:
+        """Infer content type from file bytes for common upload formats."""
+        if not file_bytes:
+            return None
+
+        if file_bytes.startswith(b"%PDF-"):
+            return "application/pdf"
+        if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if file_bytes.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if file_bytes.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif"
+        if file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP":
+            return "image/webp"
+        if file_bytes.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+            try:
+                with ZipFile(BytesIO(file_bytes)) as archive:
+                    names = set(archive.namelist())
+            except (BadZipFile, OSError):
+                names = set()
+            if "word/document.xml" in names:
+                return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            return "application/zip"
+        if file_bytes.startswith(b"\x1f\x8b"):
+            return "application/gzip"
+
+        sample = file_bytes[:4096]
+        if b"\x00" not in sample:
+            try:
+                sample_text = sample.decode("utf-8")
+            except UnicodeDecodeError:
+                sample_text = None
+            if sample_text is not None:
+                if "," in sample_text and "\n" in sample_text:
+                    return "text/csv"
+                return "text/plain"
+        return None
+
     # -- file upload ---------------------------------------------------------
 
     def upload_file(self, path: Path) -> str:
         """Upload a file for temporary storage, returning its ``file:<id>`` reference."""
         path = Path(path)
+        file_bytes = path.read_bytes()
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         response = self._http.post(
             "upload/",
-            content=path.read_bytes(),
+            content=file_bytes,
             headers={
                 "Content-Type": content_type,
                 "Content-Disposition": f'attachment; filename="{path.name}"',
