@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import csv
+import io
 import json
 import shutil
 import tempfile
@@ -433,6 +434,7 @@ def _resolve_custom_field_file_source(
     if lowered.startswith("http://") or lowered.startswith("https://"):
         parsed = urlparse(source)
         filename = Path(unquote(parsed.path)).name or "downloaded-file"
+        print(f"Downloading custom field '{field_name}' file from {source} ...")
         temp_dir = Path(tempfile.mkdtemp(prefix="pretalx-upload-"))
         download_path = temp_dir / filename
         try:
@@ -1182,6 +1184,20 @@ def _custom_field_values_for_submission(
     return values
 
 
+def _decode_csv_bytes(raw_bytes: bytes, source_name: str) -> str:
+    """Decode CSV bytes with UTF-8 first, then common Excel encodings."""
+    encodings = ("utf-8-sig", "utf-8", "cp1252", "iso-8859-1")
+    for encoding in encodings:
+        try:
+            return raw_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise typer.BadParameter(
+        f"Could not decode CSV file '{source_name}'. "
+        "Please save it as UTF-8 CSV (or plain text with UTF-8 encoding)."
+    )
+
+
 @submissions_app.command("csvexport")
 @handle_errors
 def submissions_csvexport(
@@ -1260,7 +1276,8 @@ def submissions_csvimport(
     headers = _csv_headers_for_submission_create(state.config)
 
     imported: list[dict] = []
-    with file.open("r", newline="", encoding="utf-8") as csv_file:
+    csv_text = _decode_csv_bytes(file.read_bytes(), str(file))
+    with io.StringIO(csv_text, newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         if reader.fieldnames is None:
             raise typer.BadParameter("CSV file has no header row.")
