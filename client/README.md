@@ -173,6 +173,10 @@ CSV headers mirror `submissions create` flags, for example:
 `title`, `submission_type`, `content_locale`, `speaker_email`, `speaker_name`,
 `figshare_id`, `self_assessment`, `pdf_question`.
 
+For multiple speakers in CSV, use comma-separated values in `speaker_email`
+and optionally `speaker_name` (same order and count). Because commas are used
+inside a field value, ensure those cells are properly CSV-quoted.
+
 ### Manage submissions individually
 
 ```bash

@@ -1069,6 +1069,48 @@ def _submission_row_base(submission: dict) -> dict[str, str]:
     }
 
 
+def _speaker_csv_values_for_submission(
+    state: State,
+    event: str,
+    speaker_refs: Any,
+    speaker_cache: dict[str, dict],
+) -> dict[str, str]:
+    if not isinstance(speaker_refs, list) or not speaker_refs:
+        return {"speaker_email": "", "speaker_name": ""}
+
+    speaker_emails: list[str] = []
+    speaker_names: list[str] = []
+
+    for ref in speaker_refs:
+        speaker: dict[str, Any] | None = None
+        if isinstance(ref, dict):
+            speaker = ref
+        else:
+            speaker_code = str(ref or "").strip()
+            if not speaker_code:
+                continue
+            if speaker_code not in speaker_cache:
+                speaker_cache[speaker_code] = state.client.get_speaker(event, speaker_code)
+            speaker = speaker_cache[speaker_code]
+
+        email = _csv_scalar(speaker.get("email")).strip() if isinstance(speaker, dict) else ""
+        if not email:
+            continue
+
+        speaker_emails.append(email)
+        speaker_names.append(_csv_scalar(speaker.get("name")).strip())
+
+    if not speaker_emails:
+        return {"speaker_email": "", "speaker_name": ""}
+
+    # Only emit speaker_name when every speaker has one, so csvimport remains valid.
+    speaker_name_value = ",".join(speaker_names) if all(speaker_names) else ""
+    return {
+        "speaker_email": ",".join(speaker_emails),
+        "speaker_name": speaker_name_value,
+    }
+
+
 def _question_ids_for_custom_fields(
     state: State,
     event: str,
@@ -1134,9 +1176,18 @@ def submissions_csvexport(
         submissions = state.client.list_submissions(event, all_pages=all)
         configured_fields = _configured_custom_fields(state.config)
         question_ids_by_field = _question_ids_for_custom_fields(state, event, configured_fields)
+        speaker_cache: dict[str, dict] = {}
 
         for submission in submissions:
             row = _submission_row_base(submission)
+            row.update(
+                _speaker_csv_values_for_submission(
+                    state,
+                    event,
+                    submission.get("speakers"),
+                    speaker_cache,
+                )
+            )
             row.update(
                 _custom_field_values_for_submission(
                     state,
