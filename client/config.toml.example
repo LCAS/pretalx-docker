@@ -6,6 +6,7 @@
 url = "https://pretalx.example.org"
 token = "your-api-token"
 event = "myevent"
+organiser = "myorg"
 content_locale = "en_gb"
 submission_type = "1"
 
@@ -19,6 +20,7 @@ self_assessment = 125
 url = "https://ref11dev.zrok.lcas.group"
 token = "your-api-token"
 event = "ref11"
+organiser = "ref11"
 content_locale = "en_gb"
 submission_type = "1"
 

@@ -204,6 +204,12 @@ class PretalxClient:
             f"organisers/{organiser}/plugins/ref-extensions/users/", json=data
         )
 
+    def list_users(self, organiser: str, all_pages: bool = False) -> list[dict]:
+        return self.paginated(
+            f"organisers/{organiser}/plugins/ref-extensions/users/",
+            all_pages=all_pages,
+        )
+
     def list_teams(self, organiser: str, all_pages: bool = False) -> list[dict]:
         return self.paginated(f"organisers/{organiser}/teams/", all_pages=all_pages)
 

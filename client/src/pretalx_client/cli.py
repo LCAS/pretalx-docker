@@ -23,6 +23,7 @@ DEFAULT_CONFIG_TEMPLATE = """# Copy this file to config.toml and fill in your va
 url = \"https://pretalx.example.org\"
 token = \"your-api-token\"
 event = \"myevent\"
+organiser = \"myorg\"
 submission_type = \"1\"
 content_locale = \"en_gb\"
 
@@ -36,6 +37,7 @@ self_assessment = 125
 url = \"https://ref11dev.zrok.lcas.group\"
 token = \"your-api-token\"
 event = \"ref11\"
+organiser = \"ref11\"
 submission_type = \"1\"
 content_locale = \"en_gb\"
 
@@ -51,17 +53,17 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-config_app = typer.Typer(help="Inspect the resolved configuration.")
-events_app = typer.Typer(help="Browse pretalx events.")
-submission_types_app = typer.Typer(help="Look up submission types.")
-tracks_app = typer.Typer(help="Look up tracks.")
-tags_app = typer.Typer(help="Look up tags.")
-access_codes_app = typer.Typer(help="Look up access codes.")
-speakers_app = typer.Typer(help="Manage speakers.")
-submissions_app = typer.Typer(help="Manage submissions (proposals).")
-resources_app = typer.Typer(help="Manage a submission's attached resources (files/links).")
-users_app = typer.Typer(help="Batch-provision users (no invitation emails sent).")
-teams_app = typer.Typer(help="Manage organiser teams and reviewers.")
+config_app = typer.Typer(help="Inspect the resolved configuration.", no_args_is_help=True)
+events_app = typer.Typer(help="Browse pretalx events.", no_args_is_help=True)
+submission_types_app = typer.Typer(help="Look up submission types.", no_args_is_help=True)
+tracks_app = typer.Typer(help="Look up tracks.", no_args_is_help=True)
+tags_app = typer.Typer(help="Look up tags.", no_args_is_help=True)
+access_codes_app = typer.Typer(help="Look up access codes.", no_args_is_help=True)
+speakers_app = typer.Typer(help="Manage speakers.", no_args_is_help=True)
+submissions_app = typer.Typer(help="Manage submissions (proposals).", no_args_is_help=True)
+resources_app = typer.Typer(help="Manage a submission's attached resources (files/links).", no_args_is_help=True)
+users_app = typer.Typer(help="Batch-provision users (no invitation emails sent).", no_args_is_help=True)
+teams_app = typer.Typer(help="Manage organiser teams and reviewers.", no_args_is_help=True)
 
 submissions_app.add_typer(resources_app, name="resources")
 app.add_typer(config_app, name="config")
@@ -1376,6 +1378,16 @@ def resources_remove(ctx: typer.Context, code: str, resource_id: int):
 
 
 # -- users (batch provisioning, no invitation emails) ------------------
+
+
+@users_app.command("list")
+@handle_errors
+def users_list(ctx: typer.Context, all: bool = typer.Option(False, "--all", help="Fetch all pages")):
+    """List users for the configured organiser."""
+    state: State = ctx.obj
+    organiser = state.require_organiser()
+    users = state.client.list_users(organiser, all_pages=all)
+    print_result(users, state.format, columns=["code", "email", "name", "is_active"])
 
 
 @users_app.command("create")

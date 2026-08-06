@@ -21,10 +21,11 @@ Run it via `uv run pretalx-client ...`, or activate the venv (`.venv/bin/activat
 ## Configuration
 
 The client needs a pretalx instance URL, an API token, and (for most commands) an
-event slug. These are resolved with the following precedence:
+event slug. The `users` and `teams` commands also require an organiser slug. These
+are resolved with the following precedence:
 
-1. CLI flags: `--url`, `--token`, `--event`
-2. Environment variables: `PRETALX_URL`, `PRETALX_TOKEN`, `PRETALX_EVENT`
+1. CLI flags: `--url`, `--token`, `--event`, `--organiser`
+2. Environment variables: `PRETALX_URL`, `PRETALX_TOKEN`, `PRETALX_EVENT`, `PRETALX_ORGANISER`
 3. A TOML config file (default `~/.config/pretalx-client/config.toml`, or if that file
   does not exist then `./config.toml` in the current working directory; override with
   `--config-file`), using named profiles selected via `--profile`/`PRETALX_PROFILE`
@@ -35,6 +36,7 @@ event slug. These are resolved with the following precedence:
    url = "https://pretalx.example.org"
    token = "your-api-token"
    event = "myevent"
+  organiser = "myorg"
    submission_type = "1"
    content_locale = "en_gb"
 
@@ -48,6 +50,7 @@ event slug. These are resolved with the following precedence:
    url = "https://ref11dev.zrok.lcas.group"
    token = "your-api-token"
    event = "ref11"
+  organiser = "ref11"
    submission_type = "1"
    content_locale = "en_gb"
 
@@ -96,6 +99,10 @@ uv run pretalx-client config init
 ```
 
 Use `--force` to overwrite an existing `config.toml`.
+
+For organiser-scoped commands such as `users list`, `users create`, `users batch-create`,
+`teams list`, and `teams add-member`, set `organiser` in the active profile (or pass
+`--organiser` / set `PRETALX_ORGANISER`).
 
 ## Usage
 
