@@ -10,7 +10,7 @@ import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
@@ -374,10 +374,10 @@ def _create_custom_field_answer(
     event: str,
     submission_code: str,
     field_name: str,
-    question_reference: str | int,
+    question_id: int,
     raw_value: str,
+    existing_answer_id: Optional[int] = None,
 ) -> dict:
-    question_id = _resolve_question_reference(state.client, event, question_reference)
     question = state.client.get_question(event, question_id, expand_options=True)
     variant = str(question.get("variant") or "").lower()
 
@@ -385,11 +385,18 @@ def _create_custom_field_answer(
         file_path, description, cleanup_dir = _resolve_custom_field_file_source(field_name, raw_value)
         try:
             file_ref = state.client.upload_file(file_path)
+            answer_text = _effective_resource_description(description, file=file_path)
+            if existing_answer_id is not None:
+                return state.client.update_answer(
+                    event,
+                    existing_answer_id,
+                    {"answer": answer_text, "answer_file": file_ref},
+                )
             return state.client.create_answer(
                 event=event,
                 question=question_id,
                 submission=submission_code,
-                answer=_effective_resource_description(description, file=file_path),
+                answer=answer_text,
                 answer_file=file_ref,
             )
         finally:
@@ -398,6 +405,12 @@ def _create_custom_field_answer(
 
     if variant == "choices":
         option_ids = _resolve_choice_option_ids(question, raw_value, multiple=False)
+        if existing_answer_id is not None:
+            return state.client.update_answer(
+                event,
+                existing_answer_id,
+                {"answer": raw_value, "options": option_ids},
+            )
         return state.client.create_answer(
             event=event,
             question=question_id,
@@ -408,6 +421,12 @@ def _create_custom_field_answer(
 
     if variant == "multiple_choice":
         option_ids = _resolve_choice_option_ids(question, raw_value, multiple=True)
+        if existing_answer_id is not None:
+            return state.client.update_answer(
+                event,
+                existing_answer_id,
+                {"answer": raw_value, "options": option_ids},
+            )
         return state.client.create_answer(
             event=event,
             question=question_id,
@@ -415,6 +434,9 @@ def _create_custom_field_answer(
             answer=raw_value,
             options=option_ids,
         )
+
+    if existing_answer_id is not None:
+        return state.client.update_answer(event, existing_answer_id, {"answer": raw_value})
 
     return state.client.create_answer(
         event=event,
@@ -566,6 +588,10 @@ def _parse_comma_separated_values(raw_value: Optional[str]) -> list[str]:
     return [part.strip() for part in raw_value.split(",") if part.strip()]
 
 
+def _submission_title_key(raw_title: str) -> str:
+    return raw_title.strip().casefold()
+
+
 def _parse_speaker_inputs(
     speaker_email: Optional[str],
     speaker_name: Optional[str],
@@ -605,6 +631,7 @@ def _create_submission_with_answers(
     custom_field_values: dict[str, str],
     speaker_email: Optional[str] = None,
     speaker_name: Optional[str] = None,
+    existing_submission_code: Optional[str] = None,
 ) -> tuple[dict, list[dict]]:
     event = state.require_event()
     resolved_content_locale = _effective_content_locale(state, content_locale)
@@ -627,21 +654,50 @@ def _create_submission_with_answers(
         internal_notes=internal_notes,
         extra=extra,
     )
-    submission = state.client.create_submission(event, data)
-    code = submission["code"]
+    existing_answers_by_question: dict[int, dict] = {}
+    if existing_submission_code:
+        code = existing_submission_code
+        submission = state.client.update_submission(event, code, data)
+        existing_answers = state.client.list_answers(
+            event,
+            params={"submission": code},
+            all_pages=True,
+        )
+        for answer in existing_answers:
+            if not isinstance(answer, dict):
+                continue
+            question_value = answer.get("question")
+            try:
+                question_id = int(question_value)
+            except (TypeError, ValueError):
+                continue
+            existing_answers_by_question[question_id] = answer
+    else:
+        submission = state.client.create_submission(event, data)
+        code = submission["code"]
 
     configured_custom_fields = _configured_custom_fields(state.config)
     created_answers: list[dict] = []
     for field_name, value in custom_field_values.items():
         question_reference = configured_custom_fields[field_name]
+        question_id = _resolve_question_reference(state.client, event, question_reference)
+        existing_answer_id: Optional[int] = None
+        existing_answer = existing_answers_by_question.get(question_id)
+        if isinstance(existing_answer, dict):
+            answer_id_value = existing_answer.get("id")
+            try:
+                existing_answer_id = int(answer_id_value)
+            except (TypeError, ValueError):
+                existing_answer_id = None
         created_answers.append(
             _create_custom_field_answer(
                 state=state,
                 event=event,
                 submission_code=code,
                 field_name=field_name,
-                question_reference=question_reference,
+                question_id=question_id,
                 raw_value=value,
+                existing_answer_id=existing_answer_id,
             )
         )
 
@@ -1304,11 +1360,32 @@ def submissions_csvexport(
 def submissions_csvimport(
     ctx: typer.Context,
     file: Path = typer.Option(..., "--file", "-f", exists=True, help="Input CSV file"),
+    mode: Literal["upsert", "insert"] = typer.Option(
+        "upsert",
+        "--mode",
+        help=(
+            "Import mode: 'upsert' updates an existing submission with the same title, "
+            "'insert' always creates a new submission."
+        ),
+    ),
 ):
     """Import submissions from CSV using the same column names as `submissions create`."""
     state: State = ctx.obj
+    event = state.require_event()
     configured_custom_fields = _configured_custom_fields(state.config)
     headers = _csv_headers_for_submission_create(state.config)
+    existing_submissions_by_title: dict[str, dict] = {}
+
+    if mode == "upsert":
+        for submission in state.client.list_submissions(event, all_pages=True):
+            if not isinstance(submission, dict):
+                continue
+            title_value = submission.get("title")
+            if not isinstance(title_value, str):
+                continue
+            title_key = _submission_title_key(title_value)
+            if title_key and title_key not in existing_submissions_by_title:
+                existing_submissions_by_title[title_key] = submission
 
     imported: list[dict] = []
     csv_text = _decode_csv_bytes(file.read_bytes(), str(file))
@@ -1331,6 +1408,17 @@ def submissions_csvimport(
                 if not any((value or "").strip() for value in row.values()):
                     continue
                 raise typer.BadParameter(f"Row {row_index}: missing required column 'title'.")
+
+            existing_submission_code: Optional[str] = None
+            action = "created"
+            if mode == "upsert":
+                title_key = _submission_title_key(title)
+                existing_submission = existing_submissions_by_title.get(title_key)
+                if isinstance(existing_submission, dict):
+                    existing_code = str(existing_submission.get("code") or "").strip()
+                    if existing_code:
+                        existing_submission_code = existing_code
+                        action = "updated"
 
             custom_field_values: dict[str, str] = {}
             for field_name in configured_custom_fields:
@@ -1371,19 +1459,24 @@ def submissions_csvimport(
                     custom_field_values=custom_field_values,
                     speaker_email=(row.get("speaker_email") or None),
                     speaker_name=(row.get("speaker_name") or None),
+                    existing_submission_code=existing_submission_code,
                 )
             except typer.BadParameter as exc:
                 raise typer.BadParameter(f"Row {row_index}: {exc}") from exc
+
+            if mode == "upsert":
+                existing_submissions_by_title[_submission_title_key(title)] = submission
 
             imported.append(
                 {
                     "code": submission.get("code"),
                     "title": title,
+                    "action": action,
                     "custom_answers": len(created_answers),
                 }
             )
 
-    print_result(imported, state.format, columns=["code", "title", "custom_answers"])
+    print_result(imported, state.format, columns=["code", "title", "action", "custom_answers"])
 
 
 @submissions_app.command("update")
@@ -1429,6 +1522,42 @@ def submissions_update(
         typer.secho("Nothing to update.", fg=typer.colors.YELLOW)
         raise typer.Exit(code=0)
     print_result(state.client.update_submission(event, code, data), state.format)
+
+
+@submissions_app.command("delete")
+@handle_errors
+def submissions_delete(
+    ctx: typer.Context,
+    codes: List[str] = typer.Argument(
+        ...,
+        metavar="CODE...",
+        help="One or more submission codes to delete.",
+    ),
+):
+    """Delete one or more submissions by code."""
+    state: State = ctx.obj
+    event = state.require_event()
+
+    results: list[dict[str, str]] = []
+    had_failures = False
+
+    for raw_code in codes:
+        code = raw_code.strip()
+        if not code:
+            continue
+        try:
+            state.client.delete_submission(event, code)
+            results.append({"code": code, "status": "deleted", "error": ""})
+        except PretalxAPIError as exc:
+            had_failures = True
+            results.append({"code": code, "status": "failed", "error": str(exc)})
+
+    if not results:
+        raise typer.BadParameter("Provide at least one non-empty submission code.")
+
+    print_result(results, state.format, columns=["code", "status", "error"])
+    if had_failures:
+        raise typer.Exit(code=1)
 
 
 @submissions_app.command("accept")

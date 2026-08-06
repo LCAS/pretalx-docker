@@ -169,6 +169,14 @@ Then fill rows and import with:
 uv run pretalx-client submissions csvimport --file submissions_template.csv
 ```
 
+By default, imports run in `upsert` mode: if a submission with the same title
+already exists, it is updated instead of creating a duplicate. To always create
+new submissions, use `insert` mode:
+
+```bash
+uv run pretalx-client submissions csvimport --file submissions_template.csv --mode insert
+```
+
 CSV headers mirror `submissions create` flags, for example:
 `title`, `submission_type`, `content_locale`, `speaker_email`, `speaker_name`,
 `figshare_id`, `self_assessment`, `pdf_question`.
@@ -184,6 +192,7 @@ uv run pretalx-client submissions create --event myevent --title "..." --submiss
 uv run pretalx-client submissions resources add <code> --event myevent --file paper.pdf
 uv run pretalx-client submissions show <code> --event myevent
 uv run pretalx-client submissions accept <code> --event myevent
+uv run pretalx-client submissions delete <code1> <code2> --event myevent
 ```
 
 ### Output format

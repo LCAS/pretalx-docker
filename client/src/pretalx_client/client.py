@@ -297,6 +297,9 @@ class PretalxClient:
     def update_submission(self, event: str, code: str, data: dict) -> dict:
         return self.patch(f"events/{event}/submissions/{code}/", data)
 
+    def delete_submission(self, event: str, code: str) -> None:
+        self.delete(f"events/{event}/submissions/{code}/")
+
     def _submission_action(self, event: str, code: str, action: str) -> dict:
         return self.post(f"events/{event}/submissions/{code}/{action}/")
 
@@ -400,3 +403,6 @@ class PretalxClient:
         if options is not None:
             data["options"] = options
         return self.post(f"events/{event}/answers/", json=data)
+
+    def update_answer(self, event: str, answer_id: Any, data: dict) -> dict:
+        return self.patch(f"events/{event}/answers/{answer_id}/", data)
