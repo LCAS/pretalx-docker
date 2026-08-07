@@ -2,7 +2,7 @@ http:// {
     # Bind to the zrok share
     bind {{ .ZrokBindAddress }}
     route /media* {
-        root * /media
+        root * /public/media
         file_server
     }
 
