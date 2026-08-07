@@ -1,5 +1,6 @@
 volumes/
 *.bak
 
-volumes-*/
+volumes*/
 .env
+.DS_Store
