@@ -203,11 +203,22 @@ services:
 #   pretalx-public:
 #   pretalx-redis:
 
+  idrive:
+    image: snorre0815/idrive-docker:3.8.0
+    restart: unless-stopped
+    hostname: pretalx-idrive
+    volumes:
+      - idrive:/opt/IDriveForLinux/idriveIt
+      - ./volumes:/source/1:ro
+    environment:
+      - TZ=Etc/UTC
+
 secrets:
   zrok_token:
     environment: ZROK_TOKEN
 
 volumes:
+  idrive:
   zrok-data:
   zrok-data-media:
   redis:
