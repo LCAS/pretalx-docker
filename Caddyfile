@@ -1,8 +1,12 @@
 http:// {
     # Bind to the zrok share
     bind {{ .ZrokBindAddress }}
+    log {
+        output stderr
+    }
     route /media* {
-        root * /public/media
+        # request path already includes /media, so root must be its parent
+        root * /public
         file_server
     }
 

@@ -113,6 +113,8 @@ services:
     volumes:
       - zrok-data:/zrok/.zrok
       - ./Caddyfile:/Caddyfile:ro
+      - ./volumes/public:/public:ro
+
     restart: unless-stopped
     environment:
       HOME: /zrok
