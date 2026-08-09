@@ -13,6 +13,10 @@ http:// {
     # All other traffic goes through
     route /* {
         reverse_proxy http://pretalx:80 {
+            # zrok terminates TLS before reaching this Caddy instance, so this
+            # site block sees plain HTTP; tell pretalx the real scheme was https
+            # (gunicorn is configured to trust this via GUNICORN_FORWARDED_ALLOW_IPS)
+            header_up X-Forwarded-Proto https
         }
     }
 }
