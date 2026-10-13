@@ -18,6 +18,36 @@ uv sync
 This creates a local virtual environment and installs the `pretalx-client` command.
 Run it via `uv run pretalx-client ...`, or activate the venv (`.venv/bin/activate`).
 
+### Install into your user account
+
+To make `pretalx-client` available from any directory without `uv run`, install it
+as a uv tool:
+
+```bash
+cd client
+uv tool install --editable .
+```
+
+This places the `pretalx-client` executable in `~/.local/bin`, backed by its own
+isolated virtual environment. If `~/.local/bin` is not on your `PATH`, run
+`uv tool update-shell` once and restart your shell.
+
+- `--editable` makes source changes take effect immediately. Omit it for a fixed
+  snapshot; update such an install with `uv tool install --reinstall .`.
+- Because `./config.toml` is only used when running from this directory, move your
+  config to the default location when using the tool elsewhere:
+
+  ```bash
+  mkdir -p ~/.config/pretalx-client
+  cp config.toml ~/.config/pretalx-client/config.toml
+  chmod 600 ~/.config/pretalx-client/config.toml
+  ```
+
+- Uninstall with `uv tool uninstall pretalx-client`.
+
+Once installed, replace `uv run pretalx-client` with `pretalx-client` in the examples
+below.
+
 ## Configuration
 
 The client needs a pretalx instance URL, an API token, and (for most commands) an

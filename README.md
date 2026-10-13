@@ -55,6 +55,34 @@ Django ``SECRET_KEY``. Losing the data volume means losing uploaded content and 
 (sessions, password-reset tokens, etc.). The ``pretalx-public`` volume holds regenerable static/media output and does
 not need to be backed up.
 
+## Email sending behaviour
+
+This fork of pretalx dispatches mail in one of two ways: **immediate** (fire-and-forget, never
+persisted, cannot be reviewed or retried from the UI) or **outbox** (persisted as a `DRAFT`
+`QueuedMail`, visible to organisers under Mails → Outbox, and only actually sent once something
+calls `send_draft`, whether that's an organiser clicking "send" or a "send now" action).
+
+| Trigger | Mechanism | Immediate or Outbox |
+|---|---|---|
+| Speaker's own proposal-submission confirmation | `save_draft()` then `send_draft()` | Both — recorded in outbox, auto-sent instantly |
+| Organiser "new submission" internal notice (`mail_on_new_submission`) | `send_transient()` | Immediate |
+| Proposal accepted/rejected decision mail | `save_draft()` only | Outbox (manual send) |
+| Add new/existing co-speaker invite | `save_draft()` only | Outbox |
+| Invite additional speaker by raw email (collaborator link) | `send_transient()` | Immediate |
+| Access-code invitation (organiser sends submitter access code) | `send_transient()` | Immediate |
+| Custom-field / question reminder | `save_draft()` only | Outbox |
+| Draft-proposal reminder (bulk) | `send_transient()` | Immediate |
+| New schedule / speaker slot-change notification | `save_draft()` only | Outbox |
+| Organiser compose mail to speakers/submitters ("Send to outbox") | `bulk_create_drafts()` only | Outbox |
+| Organiser compose mail, "Send now" option | `bulk_create_drafts()` then `send_draft()` per mail | Both — recorded, auto-sent |
+| Organiser "compose teams mail" | `send_transient()` loop | Immediate (always, by design) |
+| Manual outbox send (single or bulk) | `send_draft()` | Sends an existing outbox draft |
+| Reviewer assigned to proposal / proposal assigned to reviewer | *none* | No email is sent |
+| Organiser team invite | `send_system_mail()` → `send_transient()` | Immediate (deliberately not persisted) |
+| Password reset | `send_system_mail()` | Immediate |
+| Password changed confirmation | `send_system_mail()` | Immediate |
+| Email address changed confirmation | `send_system_mail()` | Immediate |
+
 ## Other installations
 
 * Ansible role without docker: https://github.com/pretalx/ansible-pretalx/
