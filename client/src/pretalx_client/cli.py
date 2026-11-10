@@ -1732,8 +1732,9 @@ def users_batch_create(
 ):
     """Batch-create users from a CSV file with columns: email, name, locale.
 
-    Only 'email' is required. Existing users are matched and left untouched;
-    no invitation emails are sent (users are expected to log in via SSO)."""
+    Only 'email' is required. Existing users are matched by email and their
+    name/locale are updated from non-empty CSV values; no invitation emails
+    are sent (users are expected to log in via SSO)."""
     state: State = ctx.obj
     organiser = state.require_organiser()
 
@@ -1756,10 +1757,12 @@ def users_batch_create(
                 raise typer.BadParameter(f"Row {row_index}: missing required column 'email'.")
             name = (row.get("name") or "").strip() or None
             locale = (row.get("locale") or "").strip() or None
-            result = state.client.create_user(organiser, email=email, name=name, locale=locale)
+            result = state.client.create_user(
+                organiser, email=email, name=name, locale=locale, update=True
+            )
             created.append(result)
 
-    print_result(created, state.format, columns=["code", "email", "name", "created"])
+    print_result(created, state.format, columns=["code", "email", "name", "created", "updated"])
 
 
 # -- teams (reviewer assignment) ------------------

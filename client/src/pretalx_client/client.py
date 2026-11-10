@@ -236,13 +236,19 @@ class PretalxClient:
         email: str,
         name: Optional[str] = None,
         locale: Optional[str] = None,
+        update: bool = False,
     ) -> dict:
-        """Get-or-create a user by email. Never triggers an invitation email."""
+        """Get-or-create a user by email. Never triggers an invitation email.
+
+        With ``update=True``, an existing user's name/locale are overwritten
+        with the given non-empty values."""
         data: dict[str, Any] = {"email": email}
         if name:
             data["name"] = name
         if locale:
             data["locale"] = locale
+        if update:
+            data["update"] = True
         return self.post(
             f"organisers/{organiser}/plugins/ref-extensions/users/", json=data
         )
