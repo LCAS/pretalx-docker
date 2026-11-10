@@ -1739,7 +1739,8 @@ def users_batch_create(
 
     known_headers = {"email", "name", "locale"}
     created: list[dict] = []
-    with file.open("r", newline="", encoding="utf-8") as csv_file:
+    csv_text = _decode_csv_bytes(file.read_bytes(), str(file))
+    with io.StringIO(csv_text, newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         if reader.fieldnames is None:
             raise typer.BadParameter("CSV file has no header row.")
